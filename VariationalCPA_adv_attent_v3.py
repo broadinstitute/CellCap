@@ -792,21 +792,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         * ``'normal'`` - Normal distribution
         * ``'ln'`` - Logistic normal distribution (Normal(0, I) transformed by softmax)
     **model_kwargs
-        Keyword args for :class:`~scvi.module.LDVAE`
-
-    Examples
-    --------
-    >>> adata = anndata.read_h5ad(path_to_anndata)
-    >>> scvi.data.setup_anndata(adata, batch_key="batch")
-    >>> vae = scvi.model.LinearSCVI(adata)
-    >>> vae.train()
-    >>> adata.var["loadings"] = vae.get_loadings()
-
-    Notes
-    -----
-    See further usage examples in the following tutorials:
-
-    1. :doc:`/user_guide/notebooks/linear_decoder`
+        Keyword args for :class:`LINEARVAE`
     """
 
     def __init__(
