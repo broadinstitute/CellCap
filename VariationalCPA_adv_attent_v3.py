@@ -52,7 +52,6 @@ def entropy(x,temp=1.0):
     logp = F.log_softmax(x/temp,dim=1)# + 1e-8
     return -(p*logp).sum(dim=1)#.mean()
 
-#Gradiant reverse
 def init_weights(m):
     classname = m.__class__.__name__
     if classname.find('BatchNorm') != -1:
@@ -62,6 +61,7 @@ def init_weights(m):
         torch.nn.init.xavier_normal_(m.weight)
         torch.nn.init.zeros_(m.bias)
 
+#Gradiant reverse
 class GradientReverseLayer(torch.autograd.Function):
     @staticmethod
     def forward(ctx, coeff, input):
@@ -130,6 +130,10 @@ class DotProductAttention(torch.nn.Module):
     """
     Compute the dot products of the query with all values and apply a 
     softmax function to obtain the weights on the values
+
+    query: basal state z
+    key: learnable values of k programs for each drug
+    value: the same dim as key but represent latent space for perturbation
     """
     def __init__(self):
         super(DotProductAttention, self).__init__()
@@ -144,28 +148,28 @@ class DotProductAttention(torch.nn.Module):
         return context, attn
 
 class MarkerWeight(torch.nn.Module):
-    def __init__(self,input_dim=5000,drug_dim=2,prog_dim=10):
+    def __init__(self,hidden_dim=20,drug_dim=2,prog_dim=10):
         super(MarkerWeight, self).__init__()
-        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
         self.drug_dim = drug_dim
         self.n_prog = prog_dim
-        self.weight = torch.nn.Parameter(torch.rand(self.drug_dim,self.n_prog,self.input_dim))
+        self.weight = torch.nn.Parameter(torch.rand(self.drug_dim,self.n_prog,self.hidden_dim))
         
     def forward(self, x):
-        y = torch.matmul(x,self.weight.reshape((self.drug_dim,self.n_prog*self.input_dim)))
-        return y.reshape((x.size(0),self.n_prog,self.input_dim))
+        y = torch.matmul(x,self.weight.reshape((self.drug_dim,self.n_prog*self.hidden_dim)))
+        return y.reshape((x.size(0),self.n_prog,self.hidden_dim))
     
     def get_parameters(self):
         parameter_list = [{"params":self.parameters(), "lr_mult":1, 'decay_mult':2}]
         return parameter_list
 
 class DrugEncoder(torch.nn.Module):
-    def __init__(self,input_dim=30,drug_dim=2,prog_dim=10):
+    def __init__(self,hidden_dim=20,drug_dim=2,prog_dim=10):
         super(DrugEncoder, self).__init__()
-        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
         self.drug_dim = drug_dim
         self.prog_dim=prog_dim
-        self.drug_weights = MarkerWeight(input_dim=self.input_dim,
+        self.drug_weights = MarkerWeight(input_dim=self.hidden_dim,
                                          drug_dim=self.drug_dim,
                                          prog_dim=self.prog_dim)
         self.apply(init_weights)
@@ -175,11 +179,11 @@ class DrugEncoder(torch.nn.Module):
         return d
 
 class DonorWeight(torch.nn.Module):
-    def __init__(self,input_dim=5000,drug_dim=2):
+    def __init__(self,hidden_dim=20,donor_dim=2):
         super(DonorWeight, self).__init__()
-        self.input_dim = input_dim
-        self.drug_dim = drug_dim
-        self.weight = torch.nn.Parameter(torch.ones(self.drug_dim,self.input_dim))
+        self.hidden_dim = hidden_dim
+        self.donor_dim = donor_dim
+        self.weight = torch.nn.Parameter(torch.ones(self.donor_dim,self.hidden_dim))
         
     def forward(self, x):
         y = torch.matmul(x,self.weight)
@@ -192,14 +196,14 @@ class DonorWeight(torch.nn.Module):
 class DonorEncoder(torch.nn.Module):
     def __init__(self,input_dim=30,drug_dim=2):
         super(DonorEncoder, self).__init__()
-        self.input_dim = input_dim
-        self.drug_dim = drug_dim
-        self.drug_weights = DonorWeight(input_dim=self.input_dim,
-                                         drug_dim=self.drug_dim)
+        self.hidden_dim = hidden_dim
+        self.donor_dim = donor_dim
+        self.donor_weights = DonorWeight(input_dim=self.hidden_dim,
+                                         drug_dim=self.donor_dim)
         self.apply(init_weights)
         
     def forward(self, y):
-        d = self.drug_weights(y)
+        d = self.donor_weights(y)
         return d
 
 #VAE model
@@ -509,21 +513,6 @@ class LINEARVAE(BaseModuleClass):
         Zc = F.normalize(Zc, p=2, dim=1)
         Zd = F.normalize(Zd, p=2, dim=1)
         
-        '''
-        z = F.normalize(z, p=2, dim=1)
-        prob = self.classifier(z)
-        Zp = F.normalize(Zp, p=2, dim=2)
-        Zc = F.normalize(Zc, p=2, dim=2)
-        Zd = F.normalize(Zd, p=2, dim=1)
-        
-        Zp, attP = self.attention(z.unsqueeze(1),Zp)
-        Zp = Zp.squeeze(1)
-        attP = attP.squeeze(1)
-        Zc, attC = self.attention(z.unsqueeze(1),Zc)
-        Zc = Zc.squeeze(1)
-        attC = attC.squeeze(1)
-        '''
-        
         if not self.use_observed_lib_size:
             library = library_encoded
 
@@ -551,7 +540,7 @@ class LINEARVAE(BaseModuleClass):
     def generative(self,z,Zp,Zc,Zd,library,batch_index,cont_covs=None,cat_covs=None,size_factor=None,y=None,transform_batch=None):#
         """Runs the generative model."""
         # Likelihood distribution
-        zA = z+Zp+Zc#+Zd
+        zA = z+Zp+Zc+Zd
         decoder_input = zA
         
         if cat_covs is not None:
@@ -621,8 +610,6 @@ class LINEARVAE(BaseModuleClass):
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
         l = tensors["TARGET_KEY"]
-        #l = tensors[REGISTRY_KEYS.LABELS_KEY]
-        #l_ = l.view(-1)
         
         qz_m = inference_outputs["qz_m"]
         qz_v = inference_outputs["qz_v"]
