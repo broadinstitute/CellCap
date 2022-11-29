@@ -757,7 +757,7 @@ class LINEARVAE(BaseModuleClass):
         log_lkl = torch.sum(batch_log_lkl).item()
         return log_lkl
 
-class VariationalCPA(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
+class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     """
     Linearly-decoded VAE [Svensson20]_.
 
@@ -825,7 +825,7 @@ class VariationalCPA(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModel
         bias: bool = False,
         **model_kwargs,
     ):
-        super(VariationalCPA, self).__init__(adata)
+        super(CellCap, self).__init__(adata)
         self.module = LINEARVAE(
             n_input=self.summary_stats["n_vars"],
             n_batch=self.summary_stats["n_batch"],
