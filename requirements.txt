@@ -1,6 +1,1 @@
-numpy
-pandas
-anndata>=0.7
-torch>=0.12
 scvi-tools>=0.15.0
-# pyro-ppl>=0.8.3
