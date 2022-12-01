@@ -1,3 +1,11 @@
+# Data
+data/
+*.h5ad
+*.csv
+*.csv.gz
+*.txt
+*.txt.gz
+
 # Mac
 .DS_Store
 
