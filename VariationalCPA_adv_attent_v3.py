@@ -169,7 +169,7 @@ class DrugEncoder(torch.nn.Module):
         self.hidden_dim = hidden_dim
         self.drug_dim = drug_dim
         self.prog_dim=prog_dim
-        self.drug_weights = MarkerWeight(input_dim=self.hidden_dim,
+        self.drug_weights = MarkerWeight(hidden_dim=self.hidden_dim,
                                          drug_dim=self.drug_dim,
                                          prog_dim=self.prog_dim)
         self.apply(init_weights)
@@ -194,12 +194,12 @@ class DonorWeight(torch.nn.Module):
         return parameter_list
 
 class DonorEncoder(torch.nn.Module):
-    def __init__(self,input_dim=30,drug_dim=2):
+    def __init__(self,hidden_dim=30,donor_dim=2):
         super(DonorEncoder, self).__init__()
         self.hidden_dim = hidden_dim
         self.donor_dim = donor_dim
-        self.donor_weights = DonorWeight(input_dim=self.hidden_dim,
-                                         drug_dim=self.donor_dim)
+        self.donor_weights = DonorWeight(hidden_dim=self.hidden_dim,
+                                         donor_dim=self.donor_dim)
         self.apply(init_weights)
         
     def forward(self, y):
