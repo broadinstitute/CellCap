@@ -4,7 +4,7 @@
 
 from scvi.data import synthetic_iid
 
-from mypackage import MyModel, MyPyroModel
+from src.module import MyModel
 
 
 def test_mymodel():
