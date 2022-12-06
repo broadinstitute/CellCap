@@ -2,6 +2,7 @@
 
 import os
 import setuptools
+from typing import List
 
 
 def readme() -> str:
@@ -9,7 +10,7 @@ def readme() -> str:
         return f.read()
 
 
-def get_requirements() -> str:
+def get_requirements() -> List[str]:
     filebase = os.path.dirname(__file__)
 
     def _readlines(filename):
@@ -20,6 +21,8 @@ def get_requirements() -> str:
     requirements = _readlines('requirements.txt')
     if 'READTHEDOCS' in os.environ:
         requirements.extend(_readlines('requirements-rtd.txt'))
+    if 'DEV' in os.environ:
+        requirements.extend(_readlines('requirements-dev.txt'))
     return requirements
 
 
