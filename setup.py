@@ -49,7 +49,7 @@ setuptools.setup(
     ],
     keywords='scRNA-seq bioinformatics',
     url='https://github.com/broadinstitute/single-cell-compositional-perturbations',
-    author='Stephen Fleming, Mehrtash Babadi',
+    author='Yang Xu, Stephen Fleming, Mehrtash Babadi',
     license='BSD (3-Clause)',
     packages=setuptools.find_packages(),
     install_requires=get_requirements(),
