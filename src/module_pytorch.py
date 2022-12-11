@@ -283,3 +283,204 @@ class TorchLatentSpaceAttention(BaseModuleClass):
                        prob=prob, Zp=Zp, Zc=Zc, Zd=Zd, library=library,
                        attP=attP, attC=attC)
         return outputs
+
+    @auto_move_data
+    def generative(self, z, Zp, Zc, Zd, library, batch_index, cont_covs=None, cat_covs=None, size_factor=None, y=None,
+                   transform_batch=None):
+        """Runs the generative model."""
+        # Likelihood distribution
+        zA = z + Zp + Zc + Zd
+        decoder_input = zA
+
+        if cat_covs is not None:
+            categorical_input = torch.split(cat_covs, 1, dim=1)
+        else:
+            categorical_input = tuple()
+
+        if transform_batch is not None:
+            batch_index = torch.ones_like(batch_index) * transform_batch
+
+        if not self.use_size_factor_key:
+            size_factor = library
+
+        px_scale, px_r, px_rate, px_dropout = self.decoder(
+            self.dispersion,
+            decoder_input,
+            size_factor,
+            batch_index,
+            *categorical_input,
+        )
+        if self.dispersion == "gene-label":
+            px_r = F.linear(
+                one_hot(y, self.n_labels), self.px_r
+            )  # px_r gets transposed - last dimension is nb genes
+        elif self.dispersion == "gene-batch":
+            px_r = F.linear(one_hot(batch_index, self.n_batch), self.px_r)
+        elif self.dispersion == "gene":
+            px_r = self.px_r
+
+        px_r = torch.exp(px_r)
+
+        if self.gene_likelihood == "zinb":
+            px = ZeroInflatedNegativeBinomial(
+                mu=px_rate,
+                theta=px_r,
+                zi_logits=px_dropout,
+                # total_count=px_scale,
+            )
+        elif self.gene_likelihood == "nb":
+            px = NegativeBinomial(mu=px_rate, theta=px_r)
+        elif self.gene_likelihood == "poisson":
+            px = Poisson(px_rate)
+
+        # Priors
+        if self.use_observed_lib_size:
+            pl = None
+        else:
+            (
+                local_library_log_means,
+                local_library_log_vars,
+            ) = self._compute_local_library_params(batch_index)
+            pl = Normal(local_library_log_means, local_library_log_vars.sqrt())
+        pz = Normal(torch.zeros_like(zA), torch.ones_like(zA))
+        return dict(
+            zA=zA,
+            px=px,
+            pl=pl,
+            pz=pz
+        )
+
+    def loss(
+            self,
+            tensors,
+            inference_outputs,
+            generative_outputs,
+            kl_weight: float = 1.0,
+    ):
+        x = tensors[REGISTRY_KEYS.X_KEY]
+        l = tensors["TARGET_KEY"]
+
+        qz_m = inference_outputs["qz_m"]
+        qz_v = inference_outputs["qz_v"]
+        ql_m = inference_outputs["ql_m"]
+        ql_v = inference_outputs["ql_v"]
+
+        mean = torch.zeros_like(qz_m)
+        scale = torch.ones_like(qz_v)
+
+        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
+            dim=1
+        )
+
+        if not self.use_observed_lib_size:
+            kl_divergence_l = kl(
+                Normal(ql_m, torch.sqrt(ql_v)),
+                generative_outputs["pl"],
+            ).sum(dim=1)
+        else:
+            kl_divergence_l = 0.0
+
+        reconst_loss = -generative_outputs["px"].log_prob(x).sum(-1)
+        advers_loss = torch.nn.BCELoss(reduction='sum')(inference_outputs["prob"], l)
+
+        ent_penalty = entropy(generative_outputs["zA"])
+
+        ard_reg_d = Normal(loc=0., scale=1. / inference_outputs["alpha_ip_d"]).log_prob(inference_outputs["attP"]).sum()
+        ard_reg_c = Normal(loc=0., scale=1. / inference_outputs["alpha_ip_c"]).log_prob(inference_outputs["attC"]).sum()
+        ard_reg = ard_reg_d + ard_reg_c
+
+        kl_local_for_warmup = kl_divergence_z
+        kl_local_no_warmup = kl_divergence_l
+
+        weighted_kl_local = kl_weight * kl_local_for_warmup + kl_local_no_warmup
+
+        # loss = torch.mean(reconst_loss*0.5 + weighted_kl_local + advers_loss)
+        # loss = torch.mean(reconst_loss*0.5 + weighted_kl_local + advers_loss + ent_penalty*0.2)
+        loss = torch.mean(reconst_loss * 0.5 + weighted_kl_local + advers_loss + ent_penalty * 0.2 + ard_reg * 0.2)
+        # loss = torch.mean(reconst_loss + weighted_kl_local + advers_loss + ent_penalty*0.25 + att_penalty*0.25)
+
+        kl_local = dict(
+            kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z
+        )
+        kl_global = torch.tensor(0.0)
+        return LossRecorder(loss, reconst_loss, kl_local, kl_global)
+
+    @torch.no_grad()
+    def sample(
+            self,
+            tensors,
+            n_samples=1,
+            library_size=1,
+    ) -> np.ndarray:
+
+        inference_kwargs = dict(n_samples=n_samples)
+        _, generative_outputs, = self.forward(
+            tensors,
+            inference_kwargs=inference_kwargs,
+            compute_loss=False,
+        )
+
+        dist = generative_outputs["px"]
+        if self.gene_likelihood == "poisson":
+            l_train = generative_outputs["px"].mu
+            l_train = torch.clamp(l_train, max=1e8)
+            dist = torch.distributions.Poisson(
+                l_train
+            )  # Shape : (n_samples, n_cells_batch, n_genes)
+        if n_samples > 1:
+            exprs = dist.sample().permute(
+                [1, 2, 0]
+            )  # Shape : (n_cells_batch, n_genes, n_samples)
+        else:
+            exprs = dist.sample()
+
+        return exprs.cpu()
+
+    @torch.no_grad()
+    @auto_move_data
+    def marginal_ll(self, tensors, n_mc_samples):
+        sample_batch = tensors[REGISTRY_KEYS.X_KEY]
+        batch_index = tensors[REGISTRY_KEYS.BATCH_KEY]
+
+        to_sum = torch.zeros(sample_batch.size()[0], n_mc_samples)
+
+        for i in range(n_mc_samples):
+            # Distribution parameters and sampled variables
+            inference_outputs, _, losses = self.forward(tensors)
+            qz = inference_outputs["qz"]
+            ql = inference_outputs["ql"]
+            z = inference_outputs["z"]
+            library = inference_outputs["library"]
+
+            # Reconstruction Loss
+            reconst_loss = losses.reconstruction_loss
+            # Log-probabilities
+            p_z = (
+                Normal(torch.zeros_like(qz.loc), torch.ones_like(qz.scale))
+                .log_prob(z)
+                .sum(dim=-1)
+            )
+            p_x_zl = -reconst_loss
+            q_z_x = qz.log_prob(z).sum(dim=-1)
+            log_prob_sum = p_z + p_x_zl - q_z_x
+
+            if not self.use_observed_lib_size:
+                (
+                    local_library_log_means,
+                    local_library_log_vars,
+                ) = self._compute_local_library_params(batch_index)
+
+                p_l = (
+                    Normal(local_library_log_means, local_library_log_vars.sqrt())
+                    .log_prob(library)
+                    .sum(dim=-1)
+                )
+                q_l_x = ql.log_prob(library).sum(dim=-1)
+
+                log_prob_sum += p_l - q_l_x
+
+            to_sum[:, i] = log_prob_sum
+
+        batch_log_lkl = logsumexp(to_sum, dim=-1) - np.log(n_mc_samples)
+        log_lkl = torch.sum(batch_log_lkl).item()
+        return log_lkl
