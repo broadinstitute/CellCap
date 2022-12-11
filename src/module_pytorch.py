@@ -1,13 +1,18 @@
 """Module for scvi-tools written in pytorch"""
 
 import torch
-import torch.distributions as dist
+import torch.nn.functional as F
 
 from scvi import REGISTRY_KEYS
 from scvi.module.base import BaseModuleClass, LossRecorder, auto_move_data
 
 from .nn import Encoder, LinearDecoder, Classifier, GradientReversal
 from .nn import DotProductAttention, DrugEncoder, DonorEncoder
+
+def entropy(x,temp=1.0):
+    p = F.softmax(x/temp, dim=1)# + 1e-8
+    logp = F.log_softmax(x/temp,dim=1)# + 1e-8
+    return -(p*logp).sum(dim=1)
 
 class TorchLatentSpaceAttention(BaseModuleClass):
     """
@@ -385,19 +390,12 @@ class TorchLatentSpaceAttention(BaseModuleClass):
 
         ent_penalty = entropy(generative_outputs["zA"])
 
-        ard_reg_d = Normal(loc=0., scale=1. / inference_outputs["alpha_ip_d"]).log_prob(inference_outputs["attP"]).sum()
-        ard_reg_c = Normal(loc=0., scale=1. / inference_outputs["alpha_ip_c"]).log_prob(inference_outputs["attC"]).sum()
-        ard_reg = ard_reg_d + ard_reg_c
-
         kl_local_for_warmup = kl_divergence_z
         kl_local_no_warmup = kl_divergence_l
 
         weighted_kl_local = kl_weight * kl_local_for_warmup + kl_local_no_warmup
 
-        # loss = torch.mean(reconst_loss*0.5 + weighted_kl_local + advers_loss)
-        # loss = torch.mean(reconst_loss*0.5 + weighted_kl_local + advers_loss + ent_penalty*0.2)
-        loss = torch.mean(reconst_loss * 0.5 + weighted_kl_local + advers_loss + ent_penalty * 0.2 + ard_reg * 0.2)
-        # loss = torch.mean(reconst_loss + weighted_kl_local + advers_loss + ent_penalty*0.25 + att_penalty*0.25)
+        loss = torch.mean(reconst_loss*0.5 + weighted_kl_local + advers_loss + ent_penalty*0.2)
 
         kl_local = dict(
             kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z
