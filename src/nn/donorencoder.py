@@ -1,11 +1,11 @@
 import torch
 
 class DonorWeight(torch.nn.Module):
-    def __init__(self, input_dim=5000, drug_dim=2):
+    def __init__(self, latent_dim=20, donor_dim=2):
         super(DonorWeight, self).__init__()
-        self.input_dim = input_dim
-        self.drug_dim = drug_dim
-        self.weight = torch.nn.Parameter(torch.ones(self.drug_dim, self.input_dim))
+        self.latent_dim = latent_dim
+        self.donor_dim = donor_dim
+        self.weight = torch.nn.Parameter(torch.ones(self.donor_dim, self.latent_dim))
 
     def forward(self, x):
         y = torch.matmul(x, self.weight)
@@ -17,14 +17,14 @@ class DonorWeight(torch.nn.Module):
 
 
 class DonorEncoder(torch.nn.Module):
-    def __init__(self, input_dim=30, drug_dim=2):
+    def __init__(self, latent_dim=20, donor_dim=2):
         super(DonorEncoder, self).__init__()
-        self.input_dim = input_dim
-        self.drug_dim = drug_dim
-        self.drug_weights = DonorWeight(input_dim=self.input_dim,
-                                        drug_dim=self.drug_dim)
+        self.latent_dim = latent_dim
+        self.donor_dim = donor_dim
+        self.donor_weights = DonorWeight(latent_dim=self.latent_dim,
+                                         donor_dim=self.donor_dim)
         self.apply(init_weights)
 
     def forward(self, y):
-        d = self.drug_weights(y)
+        d = self.donor_weights(y)
         return d

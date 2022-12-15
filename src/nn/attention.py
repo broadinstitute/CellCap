@@ -1,6 +1,7 @@
 import torch
-from torch import Tensor
 import torch.nn.functional as F
+
+from torch import Tensor
 
 class DotProductAttention(torch.nn.Module):
     """
