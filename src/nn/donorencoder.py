@@ -5,7 +5,7 @@ class DonorWeight(torch.nn.Module):
         super(DonorWeight, self).__init__()
         self.latent_dim = latent_dim
         self.donor_dim = donor_dim
-        self.weight = torch.nn.Parameter(torch.ones(self.donor_dim, self.latent_dim))
+        self.weight = torch.nn.Parameter(torch.zeros(self.donor_dim, self.latent_dim))
 
     def forward(self, x):
         y = torch.matmul(x, self.weight)
