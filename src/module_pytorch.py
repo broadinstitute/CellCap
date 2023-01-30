@@ -1,10 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Mon Sep 12 08:26:14 2022
-
-@author: yxu
-"""
+"""Module for scvi-tools written in pytorch"""
 
 import logging
 import numpy as np
@@ -47,233 +41,26 @@ from typing import Callable, Iterable, Optional, List, Union, Tuple
 
 torch.backends.cudnn.benchmark = True
 
+from .nn import DotProductAttention, DrugEncoder, DonorEncoder, AdvNet
+
 def entropy(x,temp=1.0):
     p = F.softmax(x/temp, dim=1)# + 1e-8
     logp = F.log_softmax(x/temp,dim=1)# + 1e-8
-    return -(p*logp).sum(dim=1)#.mean()
+    return -(p*logp).sum(dim=1)
 
-def init_weights(m):
-    classname = m.__class__.__name__
-    if classname.find('BatchNorm') != -1:
-        torch.nn.init.normal_(m.weight, 1.0, 0.02)
-        torch.nn.init.zeros_(m.bias)
-    elif classname.find('Linear') != -1:
-        torch.nn.init.xavier_normal_(m.weight)
-        torch.nn.init.zeros_(m.bias)
-
-#Gradiant reverse
-class GradientReverseLayer(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, coeff, input):
-        ctx.coeff = coeff
-        return input
-
-    @staticmethod
-    def backward(ctx, grad_outputs):
-        coeff = ctx.coeff
-        return None, -coeff * grad_outputs
-
-class GradientReverseModule(torch.nn.Module):
-    def __init__(self, scheduler):
-        super(GradientReverseModule, self).__init__()
-        self.scheduler = scheduler
-        self.global_step = 0.0
-        self.coeff = 0.0
-        self.grl = GradientReverseLayer.apply
-    def forward(self, x):
-        self.coeff = self.scheduler(self.global_step)
-        self.global_step += 1.0
-        return self.grl(self.coeff, x)
-
-class AdvNet(torch.nn.Module):
-    def __init__(self, in_feature=20, hidden_size=20,out_dim=2):
-        super(AdvNet, self).__init__()
-        self.ad_layer1 = torch.nn.Linear(in_feature, hidden_size)
-        self.ad_layer2 = torch.nn.Linear(hidden_size, hidden_size)
-        self.ad_layer3 = torch.nn.Linear(hidden_size, out_dim)
-        self.relu1 = torch.nn.ReLU()
-        self.relu2 = torch.nn.ReLU()
-        self.norm1 = torch.nn.BatchNorm1d(hidden_size)
-        self.norm2 = torch.nn.BatchNorm1d(hidden_size)
-        self.dropout1 = torch.nn.Dropout(0.25)
-        self.dropout2 = torch.nn.Dropout(0.25)
-        self.sigmoid = torch.nn.Sigmoid()
-        self.apply(init_weights)
-        self.iter_num = 0
-        self.alpha = 10
-        self.low = 0.0
-        self.high = 1.0
-        self.max_iter = 10000.0
-        self.grl = GradientReverseModule(lambda step: aToBSheduler(step, 0.0, 1.0, 
-                                                                   gamma=10, 
-                                                                   max_iter=self.max_iter))
-
-    def forward(self, x, reverse = True):
-        if reverse:
-            x = self.grl(x)
-        x = self.ad_layer1(x)
-        x = self.norm1(x)
-        x = self.relu1(x)
-        x = self.dropout1(x)
-        x = self.ad_layer2(x)
-        x = self.norm2(x)
-        x = self.relu2(x)
-        x = self.dropout2(x)
-        y = self.ad_layer3(x)
-        y = self.sigmoid(y)
-        return y
-
-    def output_num(self):
-        return 1
-
-class DotProductAttention(torch.nn.Module):
-    """
-    Compute the dot products of the query with all values and apply a 
-    softmax function to obtain the weights on the values
-
-    query: basal state z
-    key: learnable values of k programs for each drug
-    value: the same dim as key but represent latent space for perturbation
-    """
-    def __init__(self):
-        super(DotProductAttention, self).__init__()
-
-    def forward(self, query: Tensor, key: Tensor, value: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
-        batch_size, _, input_size = query.size(0), query.size(2), value.size(1)
-
-        score = torch.bmm(query, key.transpose(1, 2))
-        attn = F.softmax(score.view(-1, input_size), dim=1).view(batch_size, -1, input_size)
-        context = torch.bmm(attn, value)
-
-        return context, attn
-
-class MarkerWeight(torch.nn.Module):
-    def __init__(self,hidden_dim=20,drug_dim=2,prog_dim=10):
-        super(MarkerWeight, self).__init__()
-        self.hidden_dim = hidden_dim
-        self.drug_dim = drug_dim
-        self.n_prog = prog_dim
-        self.weight = torch.nn.Parameter(torch.rand(self.drug_dim,self.n_prog,self.hidden_dim))
-        
-    def forward(self, x):
-        y = torch.matmul(x,self.weight.reshape((self.drug_dim,self.n_prog*self.hidden_dim)))
-        return y.reshape((x.size(0),self.n_prog,self.hidden_dim))
-    
-    def get_parameters(self):
-        parameter_list = [{"params":self.parameters(), "lr_mult":1, 'decay_mult':2}]
-        return parameter_list
-
-class DrugEncoder(torch.nn.Module):
-    def __init__(self,hidden_dim=20,drug_dim=2,prog_dim=10):
-        super(DrugEncoder, self).__init__()
-        self.hidden_dim = hidden_dim
-        self.drug_dim = drug_dim
-        self.prog_dim=prog_dim
-        self.drug_weights = MarkerWeight(hidden_dim=self.hidden_dim,
-                                         drug_dim=self.drug_dim,
-                                         prog_dim=self.prog_dim)
-        self.apply(init_weights)
-        
-    def forward(self, y):
-        d = self.drug_weights(y)
-        return d
-
-class DonorWeight(torch.nn.Module):
-    def __init__(self,hidden_dim=20,donor_dim=2):
-        super(DonorWeight, self).__init__()
-        self.hidden_dim = hidden_dim
-        self.donor_dim = donor_dim
-        self.weight = torch.nn.Parameter(torch.ones(self.donor_dim,self.hidden_dim))
-        
-    def forward(self, x):
-        y = torch.matmul(x,self.weight)
-        return y
-    
-    def get_parameters(self):
-        parameter_list = [{"params":self.parameters(), "lr_mult":1, 'decay_mult':2}]
-        return parameter_list
-
-class DonorEncoder(torch.nn.Module):
-    def __init__(self,hidden_dim=30,donor_dim=2):
-        super(DonorEncoder, self).__init__()
-        self.hidden_dim = hidden_dim
-        self.donor_dim = donor_dim
-        self.donor_weights = DonorWeight(hidden_dim=self.hidden_dim,
-                                         donor_dim=self.donor_dim)
-        self.apply(init_weights)
-        
-    def forward(self, y):
-        d = self.donor_weights(y)
-        return d
-
-#VAE model
 class LINEARVAE(BaseModuleClass):
     """
-    Variational auto-encoder model.
+    Skeleton Variational auto-encoder model.
 
-    This is an implementation of the scVI model described in [Lopez18]_
+    Here we implement a basic version of scVI's underlying VAE [Lopez18]_.
+    This implementation is for instructional purposes only.
 
     Parameters
     ----------
     n_input
         Number of input genes
-    n_batch
-        Number of batches, if 0, no batch correction is performed.
-    n_labels
-        Number of labels
-    n_hidden
-        Number of nodes per hidden layer
     n_latent
         Dimensionality of the latent space
-    n_layers
-        Number of hidden layers used for encoder and decoder NNs
-    n_continuous_cov
-        Number of continuous covarites
-    n_cats_per_cov
-        Number of categories for each extra categorical covariate
-    dropout_rate
-        Dropout rate for neural networks
-    dispersion
-        One of the following
-
-        * ``'gene'`` - dispersion parameter of NB is constant per gene across cells
-        * ``'gene-batch'`` - dispersion can differ between different batches
-        * ``'gene-label'`` - dispersion can differ between different labels
-        * ``'gene-cell'`` - dispersion can differ for every gene in every cell
-    log_variational
-        Log(data+1) prior to encoding for numerical stability. Not normalization.
-    gene_likelihood
-        One of
-
-        * ``'nb'`` - Negative binomial distribution
-        * ``'zinb'`` - Zero-inflated negative binomial distribution
-        * ``'poisson'`` - Poisson distribution
-    latent_distribution
-        One of
-
-        * ``'normal'`` - Isotropic normal
-        * ``'ln'`` - Logistic normal with normal params N(0, 1)
-    encode_covariates
-        Whether to concatenate covariates to expression in encoder
-    deeply_inject_covariates
-        Whether to concatenate covariates into output of hidden layers in encoder/decoder. This option
-        only applies when `n_layers` > 1. The covariates are concatenated to the input of subsequent hidden layers.
-    use_layer_norm
-        Whether to use layer norm in layers
-    use_size_factor_key
-        Use size_factor AnnDataField defined by the user as scaling factor in mean of conditional distribution.
-        Takes priority over `use_observed_lib_size`.
-    use_observed_lib_size
-        Use observed library size for RNA as scaling factor in mean of conditional distribution
-    library_log_means
-        1 x n_batch array of means of the log library sizes. Parameterizes prior on library size if
-        not using observed library size.
-    library_log_vars
-        1 x n_batch array of variances of the log library sizes. Parameterizes prior on library size if
-        not using observed library size.
-    var_activation
-        Callable used to ensure positivity of the variational distributions' variance.
-        When `None`, defaults to `torch.exp`.
     """
 
     def __init__(
@@ -287,7 +74,7 @@ class LINEARVAE(BaseModuleClass):
         n_drug: int = 3,
         n_target: int = 5,
         n_control: int = 3,
-        n_prog: int=5,
+        n_prog: int = 5,
         n_donor: int = 5,
         n_continuous_cov: int = 0,
         n_layers_encoder: int = 1,
@@ -364,7 +151,7 @@ class LINEARVAE(BaseModuleClass):
             use_batch_norm=True,
             use_layer_norm=False,
         )
-        
+
         # l encoder goes from n_input-dimensional data to 1-d library size
         self.l_encoder = Encoder(
             n_input,
@@ -376,15 +163,15 @@ class LINEARVAE(BaseModuleClass):
             use_batch_norm=True,
             use_layer_norm=False,
         )
-        
-        self.d_encoder = DrugEncoder(n_latent,n_drug,n_prog)
-        self.c_encoder = DrugEncoder(n_latent,n_control,n_prog)
-        self.d_encoder_key = DrugEncoder(n_latent,n_drug,n_prog)
-        self.c_encoder_key = DrugEncoder(n_latent,n_control,n_prog)
-        self.donor_encoder = DonorEncoder(n_latent,n_donor)
-        
+
+        self.d_encoder = DrugEncoder(n_latent, n_drug, n_prog)
+        self.c_encoder = DrugEncoder(n_latent, n_control, n_prog)
+        self.d_encoder_key = DrugEncoder(n_latent, n_drug, n_prog)
+        self.c_encoder_key = DrugEncoder(n_latent, n_control, n_prog)
+        self.donor_encoder = DonorEncoder(n_latent, n_donor)
+
         self.attention = DotProductAttention()
-        
+
         # linear decoder goes from n_latent-dimensional space to n_input-d data
         self.decoder = LinearDecoderSCVI(
             n_latent,
@@ -394,12 +181,12 @@ class LINEARVAE(BaseModuleClass):
             use_layer_norm=False,
             bias=bias,
         )
-        
+
         self.classifier = AdvNet(
             in_feature=n_latent,
             hidden_size=64,
             out_dim=self.n_target,
-            )
+        )
 
     def _get_inference_input(self, tensors):
         x = tensors[REGISTRY_KEYS.X_KEY]
@@ -410,12 +197,12 @@ class LINEARVAE(BaseModuleClass):
         donor = tensors['DONOR_KEY']
         cont_key = REGISTRY_KEYS.CONT_COVS_KEY
         cont_covs = tensors[cont_key] if cont_key in tensors.keys() else None
-        
+
         cat_key = REGISTRY_KEYS.CAT_COVS_KEY
         cat_covs = tensors[cat_key] if cat_key in tensors.keys() else None
-        
+
         input_dict = dict(
-            x=x, batch_index=batch_index, pert_index=pert_index, d=d, c=c, 
+            x=x, batch_index=batch_index, pert_index=pert_index, d=d, c=c,
             donor=donor, cont_covs=cont_covs, cat_covs=cat_covs
         )
         return input_dict
@@ -427,7 +214,7 @@ class LINEARVAE(BaseModuleClass):
         Zd = inference_outputs["Zd"]
         library = inference_outputs["library"]
         batch_index = tensors[REGISTRY_KEYS.BATCH_KEY]
-        
+
         cont_key = REGISTRY_KEYS.CONT_COVS_KEY
         cont_covs = tensors[cont_key] if cont_key in tensors.keys() else None
 
@@ -440,7 +227,7 @@ class LINEARVAE(BaseModuleClass):
             if size_factor_key in tensors.keys()
             else None
         )
-        
+
         input_dict = dict(
             z=z,
             Zp=Zp,
@@ -453,7 +240,7 @@ class LINEARVAE(BaseModuleClass):
             size_factor=size_factor,
         )
         return input_dict
-    
+
     def _compute_local_library_params(self, batch_index):
         """
         Computes local library parameters.
@@ -488,38 +275,34 @@ class LINEARVAE(BaseModuleClass):
             categorical_input = torch.split(cat_covs, 1, dim=1)
         else:
             categorical_input = tuple()
-        
+
         qz_m, qz_v, z = self.z_encoder(encoder_input, batch_index, *categorical_input)
         ql_m, ql_v, library_encoded = self.l_encoder(
             encoder_input, batch_index, *categorical_input
         )
-        
+
         Zd = self.donor_encoder(donor)
+
         Zp = self.d_encoder(d)
-        Zc = self.c_encoder(c)
         Zp_key = self.d_encoder_key(d)
+        Zc = self.c_encoder(c)
         Zc_key = self.c_encoder_key(c)
-        
-        Zp, attP = self.attention(z.unsqueeze(1),Zp_key,Zp)
+
+        Zp, attP = self.attention(z.unsqueeze(1), Zp_key, Zp)
         Zp = Zp.squeeze(1)
         attP = attP.squeeze(1)
-        Zc, attC = self.attention(z.unsqueeze(1),Zc_key,Zc)
+        Zc, attC = self.attention(z.unsqueeze(1), Zc_key, Zc)
         Zc = Zc.squeeze(1)
         attC = attC.squeeze(1)
-        
-        z = F.normalize(z, p=2, dim=1)
+
         prob = self.classifier(z)
-        Zp = F.normalize(Zp, p=2, dim=1)
-        Zc = F.normalize(Zc, p=2, dim=1)
-        Zd = F.normalize(Zd, p=2, dim=1)
-        
+
         if not self.use_observed_lib_size:
             library = library_encoded
 
         if n_samples > 1:
             qz_m = qz_m.unsqueeze(0).expand((n_samples, qz_m.size(0), qz_m.size(1)))
             qz_v = qz_v.unsqueeze(0).expand((n_samples, qz_v.size(0), qz_v.size(1)))
-            # when z is normal, untran_z == z
             untran_z = Normal(qz_m, qz_v.sqrt()).sample()
             z = self.z_encoder.z_transformation(untran_z)
             ql_m = ql_m.unsqueeze(0).expand((n_samples, ql_m.size(0), ql_m.size(1)))
@@ -531,18 +314,18 @@ class LINEARVAE(BaseModuleClass):
             else:
                 library = Normal(ql_m, ql_v.sqrt()).sample()
         outputs = dict(z=z, qz_m=qz_m, qz_v=qz_v, ql_m=ql_m, ql_v=ql_v,
-                       prob=prob, Zp=Zp, Zc=Zc, Zd=Zd, library=library, 
+                       prob=prob, Zp=Zp, Zc=Zc, Zd=Zd, library=library,
                        attP=attP, attC=attC)
         return outputs
 
-
     @auto_move_data
-    def generative(self,z,Zp,Zc,Zd,library,batch_index,cont_covs=None,cat_covs=None,size_factor=None,y=None,transform_batch=None):#
+    def generative(self, z, Zp, Zc, Zd, library, batch_index, cont_covs=None, cat_covs=None, size_factor=None, y=None,
+                   transform_batch=None):
         """Runs the generative model."""
         # Likelihood distribution
-        zA = z+Zp+Zc+Zd
+        zA = z + Zp + Zc + Zd
         decoder_input = zA
-        
+
         if cat_covs is not None:
             categorical_input = torch.split(cat_covs, 1, dim=1)
         else:
@@ -577,7 +360,7 @@ class LINEARVAE(BaseModuleClass):
                 mu=px_rate,
                 theta=px_r,
                 zi_logits=px_dropout,
-                scale=px_scale,
+                # total_count=px_scale,
             )
         elif self.gene_likelihood == "nb":
             px = NegativeBinomial(mu=px_rate, theta=px_r)
@@ -599,23 +382,23 @@ class LINEARVAE(BaseModuleClass):
             px=px,
             pl=pl,
             pz=pz
-            )
+        )
 
     def loss(
-        self,
-        tensors,
-        inference_outputs,
-        generative_outputs,
-        kl_weight: float = 1.0,
+            self,
+            tensors,
+            inference_outputs,
+            generative_outputs,
+            kl_weight: float = 1.0,
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
         l = tensors["TARGET_KEY"]
-        
+
         qz_m = inference_outputs["qz_m"]
         qz_v = inference_outputs["qz_v"]
         ql_m = inference_outputs["ql_m"]
         ql_v = inference_outputs["ql_v"]
-        
+
         mean = torch.zeros_like(qz_m)
         scale = torch.ones_like(qz_v)
 
@@ -627,63 +410,36 @@ class LINEARVAE(BaseModuleClass):
             kl_divergence_l = kl(
                 Normal(ql_m, torch.sqrt(ql_v)),
                 generative_outputs["pl"],
-                ).sum(dim=1)
+            ).sum(dim=1)
         else:
             kl_divergence_l = 0.0
-        
+
         reconst_loss = -generative_outputs["px"].log_prob(x).sum(-1)
-        
-        advers_loss = -torch.nn.BCELoss(reduction='sum')(inference_outputs["prob"],l)
-        #prob_target = inference_outputs["prob"][l_==0,:]
-        #prob_source = inference_outputs["prob"][l_==1,:]
-        #advers_loss = -(prob_source.mean(0) - prob_target.mean(0)).mean()
-        
-        #ent_penalty = entropy(generative_outputs["zA"])
-        #att_penalty = entropy(inference_outputs["attP"],temp=0.5)+entropy(inference_outputs["attC"],temp=0.5)
-        
+        advers_loss = torch.nn.BCELoss(reduction='sum')(inference_outputs["prob"], l)
+
+        ent_penalty = entropy(generative_outputs["zA"])
+
         kl_local_for_warmup = kl_divergence_z
         kl_local_no_warmup = kl_divergence_l
 
         weighted_kl_local = kl_weight * kl_local_for_warmup + kl_local_no_warmup
 
-        #loss = torch.mean(reconst_loss*0.5 + weighted_kl_local + ent_penalty*0.25 + advers_loss)
-        #loss = torch.mean(reconst_loss*0.5 + weighted_kl_local + ent_penalty*0.2 + advers_loss)
-        loss = torch.mean(reconst_loss*0.5 + weighted_kl_local + advers_loss)
-        #loss = torch.mean(reconst_loss*0.25 + weighted_kl_local*0.5 + ent_penalty*0.1 + advers_loss + att_penalty*0.1)
-        
+        loss = torch.mean(reconst_loss*0.5 + weighted_kl_local + advers_loss + ent_penalty*0.2)
+
         kl_local = dict(
             kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z
         )
         kl_global = torch.tensor(0.0)
         return LossRecorder(loss, reconst_loss, kl_local, kl_global)
 
-
     @torch.no_grad()
     def sample(
-        self,
-        tensors,
-        n_samples=1,
-        library_size=1,
+            self,
+            tensors,
+            n_samples=1,
+            library_size=1,
     ) -> np.ndarray:
-        r"""
-        Generate observation samples from the posterior predictive distribution.
 
-        The posterior predictive distribution is written as :math:`p(\hat{x} \mid x)`.
-
-        Parameters
-        ----------
-        tensors
-            Tensors dict
-        n_samples
-            Number of required samples for each cell
-        library_size
-            Library size to scale scamples to
-
-        Returns
-        -------
-        x_new : :py:class:`torch.Tensor`
-            tensor with shape (n_cells, n_genes, n_samples)
-        """
         inference_kwargs = dict(n_samples=n_samples)
         _, generative_outputs, = self.forward(
             tensors,
@@ -706,7 +462,6 @@ class LINEARVAE(BaseModuleClass):
             exprs = dist.sample()
 
         return exprs.cpu()
-
 
     @torch.no_grad()
     @auto_move_data
@@ -757,59 +512,24 @@ class LINEARVAE(BaseModuleClass):
         log_lkl = torch.sum(batch_log_lkl).item()
         return log_lkl
 
+
 class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
-    """
-    Linearly-decoded VAE [Svensson20]_.
-
-    Parameters
-    ----------
-    adata
-        AnnData object that has been registered via :func:`~scvi.data.setup_anndata`.
-    n_hidden
-        Number of nodes per hidden layer.
-    n_latent
-        Dimensionality of the latent space.
-    n_layers
-        Number of hidden layers used for encoder NN.
-    dropout_rate
-        Dropout rate for neural networks.
-    dispersion
-        One of the following:
-
-        * ``'gene'`` - dispersion parameter of NB is constant per gene across cells
-        * ``'gene-batch'`` - dispersion can differ between different batches
-        * ``'gene-label'`` - dispersion can differ between different labels
-        * ``'gene-cell'`` - dispersion can differ for every gene in every cell
-    gene_likelihood
-        One of:
-
-        * ``'nb'`` - Negative binomial distribution
-        * ``'zinb'`` - Zero-inflated negative binomial distribution
-        * ``'poisson'`` - Poisson distribution
-    latent_distribution
-        One of:
-
-        * ``'normal'`` - Normal distribution
-        * ``'ln'`` - Logistic normal distribution (Normal(0, I) transformed by softmax)
-    **model_kwargs
-        Keyword args for :class:`LINEARVAE`
-    """
 
     def __init__(
-        self,
-        adata: AnnData,
-        n_hidden: int = 128,
-        n_latent: int = 10,
-        n_layers: int = 1,
-        dropout_rate: float = 0.1,
-        n_batch: int = 0,
-        dispersion: Literal["gene", "gene-batch", "gene-label", "gene-cell"] = "gene",
-        gene_likelihood: Literal["zinb", "nb", "poisson"] = "nb",
-        latent_distribution: Literal["normal", "ln"] = "normal",
-        log_variational: bool = True,
-        use_batch_norm: bool = True,
-        bias: bool = False,
-        **model_kwargs,
+            self,
+            adata: AnnData,
+            n_hidden: int = 128,
+            n_latent: int = 10,
+            n_layers: int = 1,
+            dropout_rate: float = 0.1,
+            n_batch: int = 0,
+            dispersion: Literal["gene", "gene-batch", "gene-label", "gene-cell"] = "gene",
+            gene_likelihood: Literal["zinb", "nb", "poisson"] = "nb",
+            latent_distribution: Literal["normal", "ln"] = "normal",
+            log_variational: bool = True,
+            use_batch_norm: bool = True,
+            bias: bool = False,
+            **model_kwargs,
     ):
         super(CellCap, self).__init__(adata)
         self.module = LINEARVAE(
@@ -836,14 +556,14 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             gene_likelihood,
             latent_distribution,
         )
-        
+
         self.use_batch_norm = use_batch_norm
         self.n_latent = n_latent
         self.init_params_ = self._get_init_params(locals())
-        
+
     @torch.no_grad()
     def get_loadings(self) -> np.ndarray:
-        """Extract per-gene weights (for each Z, shape is genes by dim(Z)) in the linear decoder."""
+
         # This is BW, where B is diag(b) batch norm, W is weight matrix
         if self.use_batch_norm is True:
             w = self.module.decoder.factor_regressor.fc_layers[0][0].weight
@@ -860,109 +580,76 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             loadings = loadings[:, : -self.module.n_batch]
 
         return loadings
-    
-    def get_pert_loadings(self) -> pd.DataFrame:#TO DO
-        """
-        Extract per-gene weights in the linear decoder.
 
-        Shape is genes by `n_latent`.
+    def get_pert_loadings(self) -> pd.DataFrame:  # TO DO
 
-        """
-        weights=[]
+        weights = []
         for p in self.module.d_encoder.drug_weights.parameters():
             weights.append(p)
         w = weights[0]
-        #w = F.normalize(w, p=2, dim=2)
-        loadings=torch.Tensor.cpu(w).detach().numpy()
-        #loadings = pd.DataFrame(loadings.T)
+        # w = F.normalize(w, p=2, dim=2)
+        loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
-    
-    def get_donor_loadings(self) -> pd.DataFrame:#TO DO
-        """
-        Extract per-gene weights in the linear decoder.
 
-        Shape is genes by `n_latent`.
+    def get_ard_loadings(self) -> pd.DataFrame:  # TO DO
 
-        """
-        weights=[]
+        weights = []
+        for p in self.module.ard_d.ard_dist.parameters():
+            weights.append(p)
+        w = weights[0]
+        loadings = torch.Tensor.cpu(w).detach().numpy()
+
+        return loadings
+
+    def get_donor_loadings(self) -> pd.DataFrame:  # TO DO
+
+        weights = []
         for p in self.module.donor_encoder.drug_weights.parameters():
             weights.append(p)
         w = weights[0]
-        #w = F.normalize(w, p=2, dim=1)
-        loadings=torch.Tensor.cpu(w).detach().numpy()
+        # w = F.normalize(w, p=2, dim=1)
+        loadings = torch.Tensor.cpu(w).detach().numpy()
         loadings = pd.DataFrame(loadings.T)
 
         return loadings
-    
+
     @torch.no_grad()
     def get_latent_embedding(
-        self,
-        adata: Optional[AnnData] = None,
-        batch_size: Optional[int] = None,
+            self,
+            adata: Optional[AnnData] = None,
+            batch_size: Optional[int] = None,
     ) -> np.ndarray:
-        r"""
-        Returns the latent library size for each cell.
 
-        This is denoted as :math:`\ell_n` in the totalVI paper.
-
-        Parameters
-        ----------
-        adata
-            AnnData object with equivalent structure to initial AnnData. If `None`, defaults to the
-            AnnData object used to initialize the model.
-        indices
-            Indices of cells in adata to use. If `None`, all cells are used.
-        give_mean
-            Return the mean or a sample from the posterior distribution.
-        batch_size
-            Minibatch size for data loading into model. Defaults to `scvi.settings.batch_size`.
-        """
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(
             adata=adata, batch_size=batch_size
-        )#indices=indices, 
+        )  # indices=indices,
         embedding = []
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
             z = outputs["z"]
             embedding += [z.cpu()]
-        return np.array(torch.cat(embedding))
-    
+        return np.array(F.normalize(torch.cat(embedding), p=2, dim=1))
+
     @torch.no_grad()
     def get_pert_embedding(
-        self,
-        adata: Optional[AnnData] = None,
-        batch_size: Optional[int] = None,
+            self,
+            adata: Optional[AnnData] = None,
+            batch_size: Optional[int] = None,
     ) -> np.ndarray:
-        r"""
-        Returns the latent library size for each cell.
 
-        This is denoted as :math:`\ell_n` in the totalVI paper.
-
-        Parameters
-        ----------
-        adata
-            AnnData object with equivalent structure to initial AnnData. If `None`, defaults to the
-            AnnData object used to initialize the model.
-        indices
-            Indices of cells in adata to use. If `None`, all cells are used.
-        give_mean
-            Return the mean or a sample from the posterior distribution.
-        batch_size
-            Minibatch size for data loading into model. Defaults to `scvi.settings.batch_size`.
-        """
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(
             adata=adata, batch_size=batch_size
-        )#indices=indices, 
+        )  # indices=indices,
         embedding = []
         atts = []
         for tensors in post:
@@ -970,42 +657,26 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             outputs = self.module.inference(**inference_inputs)
             Zp = outputs["Zp"]
             embedding += [Zp.cpu()]
-            
+
             attP = outputs["attP"]
             atts += [attP.cpu()]
-            
-        return np.array(torch.cat(embedding)),np.array(torch.cat(atts))
-    
+
+        return np.array(F.normalize(torch.cat(embedding), p=2, dim=1)), np.array(torch.cat(atts))
+
     @torch.no_grad()
     def get_control_embedding(
-        self,
-        adata: Optional[AnnData] = None,
-        batch_size: Optional[int] = None,
+            self,
+            adata: Optional[AnnData] = None,
+            batch_size: Optional[int] = None,
     ) -> np.ndarray:
-        r"""
-        Returns the latent library size for each cell.
 
-        This is denoted as :math:`\ell_n` in the totalVI paper.
-
-        Parameters
-        ----------
-        adata
-            AnnData object with equivalent structure to initial AnnData. If `None`, defaults to the
-            AnnData object used to initialize the model.
-        indices
-            Indices of cells in adata to use. If `None`, all cells are used.
-        give_mean
-            Return the mean or a sample from the posterior distribution.
-        batch_size
-            Minibatch size for data loading into model. Defaults to `scvi.settings.batch_size`.
-        """
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(
             adata=adata, batch_size=batch_size
-        )#indices=indices, 
+        )  # indices=indices,
         embedding = []
         atts = []
         for tensors in post:
@@ -1013,200 +684,107 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             outputs = self.module.inference(**inference_inputs)
             Zp = outputs["Zc"]
             embedding += [Zp.cpu()]
-            
+
             attC = outputs["attC"]
             atts += [attC.cpu()]
-            
-        return np.array(torch.cat(embedding)),np.array(torch.cat(atts))
-    
+
+        return np.array(F.normalize(torch.cat(embedding), p=2, dim=1)), np.array(torch.cat(atts))
+
     @torch.no_grad()
     def get_donor_embedding(
-        self,
-        adata: Optional[AnnData] = None,
-        batch_size: Optional[int] = None,
+            self,
+            adata: Optional[AnnData] = None,
+            batch_size: Optional[int] = None,
     ) -> np.ndarray:
-        r"""
-        Returns the latent library size for each cell.
 
-        This is denoted as :math:`\ell_n` in the totalVI paper.
-
-        Parameters
-        ----------
-        adata
-            AnnData object with equivalent structure to initial AnnData. If `None`, defaults to the
-            AnnData object used to initialize the model.
-        indices
-            Indices of cells in adata to use. If `None`, all cells are used.
-        give_mean
-            Return the mean or a sample from the posterior distribution.
-        batch_size
-            Minibatch size for data loading into model. Defaults to `scvi.settings.batch_size`.
-        """
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(
             adata=adata, batch_size=batch_size
-        )#indices=indices, 
+        )  # indices=indices,
         embedding = []
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
             z = outputs["Zd"]
             embedding += [z.cpu()]
-        return np.array(torch.cat(embedding))
-    
+        return np.array(F.normalize(torch.cat(embedding), p=2, dim=1))
+
     @torch.no_grad()
     def get_embedding(
-        self,
-        adata: Optional[AnnData] = None,
-        batch_size: Optional[int] = None,
+            self,
+            adata: Optional[AnnData] = None,
+            batch_size: Optional[int] = None,
     ) -> np.ndarray:
-        r"""
-        Returns the latent library size for each cell.
 
-        This is denoted as :math:`\ell_n` in the totalVI paper.
-
-        Parameters
-        ----------
-        adata
-            AnnData object with equivalent structure to initial AnnData. If `None`, defaults to the
-            AnnData object used to initialize the model.
-        indices
-            Indices of cells in adata to use. If `None`, all cells are used.
-        give_mean
-            Return the mean or a sample from the posterior distribution.
-        batch_size
-            Minibatch size for data loading into model. Defaults to `scvi.settings.batch_size`.
-        """
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(
             adata=adata, batch_size=batch_size
-        )#indices=indices, 
+        )  # indices=indices,
         embedding = []
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
-            Za = outputs['z']+outputs["Zp"]
+            Za = outputs['z'] + outputs["Zp"]
             embedding += [Za.cpu()]
-        return np.array(torch.cat(embedding))
-    
+        return np.array(F.normalize(torch.cat(embedding), p=2, dim=1))
+
     @torch.no_grad()
     def predict(
-        self,
-        adata: Optional[AnnData] = None,
-        batch_size: Optional[int] = None,
+            self,
+            adata: Optional[AnnData] = None,
+            batch_size: Optional[int] = None,
     ) -> np.ndarray:
-        r"""
-        Returns the latent library size for each cell.
 
-        This is denoted as :math:`\ell_n` in the totalVI paper.
-
-        Parameters
-        ----------
-        adata
-            AnnData object with equivalent structure to initial AnnData. If `None`, defaults to the
-            AnnData object used to initialize the model.
-        indices
-            Indices of cells in adata to use. If `None`, all cells are used.
-        give_mean
-            Return the mean or a sample from the posterior distribution.
-        batch_size
-            Minibatch size for data loading into model. Defaults to `scvi.settings.batch_size`.
-        """
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(
             adata=adata, batch_size=batch_size
-        )#indices=indices, 
+        )
         preditions = []
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
-            generative_inputs = self.module._get_generative_input(tensors,outputs)
+            generative_inputs = self.module._get_generative_input(tensors, outputs)
             outputs = self.module.generative(**generative_inputs)
             out = outputs['px'].mu
             preditions += [out.cpu()]
         return np.array(torch.cat(preditions))
-    
+
     # TO DO
     def train(
-        self,
-        max_epochs: int = 500,
-        lr: float = 1e-4,
-        use_gpu: Optional[Union[str, int, bool]] = None,
-        train_size: float = 0.9,
-        validation_size: Optional[float] = None,
-        batch_size: int = 128,
-        weight_decay: float = 1e-3,
-        eps: float = 1e-08,
-        early_stopping: bool = True,
-        save_best: bool = True,
-        check_val_every_n_epoch: Optional[int] = None,
-        n_steps_kl_warmup: Optional[int] = None,
-        n_epochs_kl_warmup: Optional[int] = 50,
-        plan_kwargs: Optional[dict] = None,
-        **kwargs,
+            self,
+            max_epochs: int = 500,
+            lr: float = 1e-4,
+            use_gpu: Optional[Union[str, int, bool]] = None,
+            train_size: float = 0.9,
+            validation_size: Optional[float] = None,
+            batch_size: int = 128,
+            weight_decay: float = 1e-3,
+            eps: float = 1e-08,
+            early_stopping: bool = True,
+            save_best: bool = True,
+            check_val_every_n_epoch: Optional[int] = None,
+            n_steps_kl_warmup: Optional[int] = None,
+            n_epochs_kl_warmup: Optional[int] = 50,
+            plan_kwargs: Optional[dict] = None,
+            **kwargs,
     ):
-        """
-        Trains the model using amortized variational inference.
-
-        Parameters
-        ----------
-        max_epochs
-            Number of passes through the dataset.
-        lr
-            Learning rate for optimization.
-        use_gpu
-            Use default GPU if available (if None or True), or index of GPU to use (if int),
-            or name of GPU (if str), or use CPU (if False).
-        train_size
-            Size of training set in the range [0.0, 1.0].
-        validation_size
-            Size of the test set. If `None`, defaults to 1 - `train_size`. If
-            `train_size + validation_size < 1`, the remaining cells belong to a test set.
-        batch_size
-            Minibatch size to use during training.
-        weight_decay
-            weight decay regularization term for optimization
-        eps
-            Optimizer eps
-        early_stopping
-            Whether to perform early stopping with respect to the validation set.
-        save_best
-            Save the best model state with respect to the validation loss, or use the final
-            state in the training procedure
-        check_val_every_n_epoch
-            Check val every n train epochs. By default, val is not checked, unless `early_stopping` is `True`.
-            If so, val is checked every epoch.
-        n_steps_kl_warmup
-            Number of training steps (minibatches) to scale weight on KL divergences from 0 to 1.
-            Only activated when `n_epochs_kl_warmup` is set to None. If `None`, defaults
-            to `floor(0.75 * adata.n_obs)`.
-        n_epochs_kl_warmup
-            Number of epochs to scale weight on KL divergences from 0 to 1.
-            Overrides `n_steps_kl_warmup` when both are not `None`.
-        plan_kwargs
-            Keyword args for :class:`~scvi.train.TrainingPlan`. Keyword arguments passed to
-            `train()` will overwrite values present in `plan_kwargs`, when appropriate.
-        **kwargs
-            Other keyword args for :class:`~scvi.train.Trainer`.
-        """
         update_dict = dict(
             lr=lr,
             weight_decay=weight_decay,
             eps=eps,
             n_epochs_kl_warmup=n_epochs_kl_warmup,
             n_steps_kl_warmup=n_steps_kl_warmup,
-            #optimizer="Adam",
             optimizer="AdamW",
-            )
+        )
         if plan_kwargs is not None:
             plan_kwargs.update(update_dict)
         else:
@@ -1228,7 +806,8 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         )
 
         training_plan = TrainingPlan(self.module, **plan_kwargs)
-        
+        # training_plan = AdversarialTrainingPlan(self.module, adversarial_classifier=True, **plan_kwargs)
+
         runner = TrainRunner(
             self,
             training_plan=training_plan,
@@ -1242,25 +821,24 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             **kwargs,
         )
         return runner()
-    
-    # TO DO
+
     @classmethod
     @setup_anndata_dsp.dedent
     def setup_anndata(
-        cls,
-        adata: AnnData,
-        labels_key: Optional[str] = None,
-        layer: Optional[str] = None,
-        batch_key: Optional[str] = None,
-        pert_key: Optional[str] = None,
-        cond_key: Optional[str] = None,
-        cont_key: Optional[str] = None,
-        target_key: Optional[str] = None,
-        donor_key: Optional[str] = None,
-        size_factor_key: Optional[str] = None,
-        categorical_covariate_keys: Optional[List[str]] = None,
-        continuous_covariate_keys: Optional[List[str]] = None,
-        **kwargs,
+            cls,
+            adata: AnnData,
+            labels_key: Optional[str] = None,
+            layer: Optional[str] = None,
+            batch_key: Optional[str] = None,
+            pert_key: Optional[str] = None,
+            cond_key: Optional[str] = None,
+            cont_key: Optional[str] = None,
+            target_key: Optional[str] = None,
+            donor_key: Optional[str] = None,
+            size_factor_key: Optional[str] = None,
+            categorical_covariate_keys: Optional[List[str]] = None,
+            continuous_covariate_keys: Optional[List[str]] = None,
+            **kwargs,
     ):
         """
         %(summary)s.
