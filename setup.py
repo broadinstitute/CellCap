@@ -34,7 +34,7 @@ def get_version() -> str:
 
 
 setuptools.setup(
-    name='scresponse',
+    name='cellcap',
     version=get_version(),
     description='A software package for distilling interpretable insights from '
                 'high-throughput single-cell RNA sequencing (scRNA-seq) '
