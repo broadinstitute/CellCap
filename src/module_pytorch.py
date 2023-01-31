@@ -36,7 +36,6 @@ from scvi.utils import setup_anndata_dsp
 
 logger = logging.getLogger(__name__)
 
-from easydl import aToBSheduler
 from typing import Callable, Iterable, Optional, List, Union, Tuple
 
 torch.backends.cudnn.benchmark = True
