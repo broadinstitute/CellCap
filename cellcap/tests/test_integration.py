@@ -8,7 +8,7 @@ from .conftest import simulated_dataset
 
 
 def test_mymodel(simulated_dataset):
-    n_latent = 5
+    n_latent = 4
     adata = simulated_dataset
     print(adata)
     kwargs = {}
@@ -20,7 +20,7 @@ def test_mymodel(simulated_dataset):
                           pert_key="pert",
                           **kwargs)
     print(adata)
-    model = CellCap(adata=adata, n_latent=4)
+    model = CellCap(adata=adata, n_latent=n_latent)
     model.train(1, check_val_every_n_epoch=1, train_size=0.5)
     print(model.history)
 
