@@ -30,8 +30,7 @@ jobs:
       run: pip install .[dev]
 
     - name: 'Test with pytest'
-      run: |
-        pytest --cov-report=xml --cov=mypackage
+      run: pytest
 
     - name: 'Print package versions'
       run: pip list
