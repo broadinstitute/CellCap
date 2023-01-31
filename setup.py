@@ -53,7 +53,9 @@ setuptools.setup(
     license='BSD (3-Clause)',
     packages=setuptools.find_packages(),
     install_requires=get_requirements(),
-    tests_require=['pytest'],
+    extras_require={
+        'dev': ['pytest', 'black', 'flake8'],
+    },
     # entry_points={
     #     'console_scripts': ['cellbender=cellbender.base_cli:main'],
     # },
