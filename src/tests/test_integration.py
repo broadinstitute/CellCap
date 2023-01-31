@@ -3,40 +3,26 @@
 # https://github.com/scverse/scvi-tools-skeleton/blob/main/tests/test_skeleton.py
 # with updates to use pytest fixtures
 
-import pyro
-
-from ..module_pytorch import TorchLatentSpaceAttention
-from ..module_pyro import PyroLatentSpaceAttention
-
+from ..module_pytorch import CellCap
 from .conftest import simulated_dataset
 
 
 def test_mymodel(simulated_dataset):
     n_latent = 5
     adata = simulated_dataset
-    # TODO modify method calls and setup_anndata call
-    TorchLatentSpaceAttention.setup_anndata(adata, batch_key="batch", labels_key="labels")
-    model = TorchLatentSpaceAttention(adata, n_latent=n_latent)
+    print(adata)
+    kwargs = {}
+    for k in adata.obsm_keys():
+        kwargs.update({f"{k}_key": k})
+    CellCap.setup_anndata(adata=adata,
+                          batch_key="batch",
+                          labels_key="labels",
+                          pert_key="pert",
+                          **kwargs)
+    print(adata)
+    model = CellCap(adata=adata, n_latent=4)
     model.train(1, check_val_every_n_epoch=1, train_size=0.5)
-    model.get_elbo()
-    model.get_latent_representation()
-    model.get_marginal_ll(n_mc_samples=5)
-    model.get_reconstruction_error()
-    model.history
-
-    # tests __repr__
-    print(model)
-
-
-def test_mypyromodel(simulated_dataset):
-    adata = simulated_dataset
-    pyro.clear_param_store()
-    # TODO modify method calls and setup_anndata call
-    PyroLatentSpaceAttention.setup_anndata(adata, batch_key="batch", labels_key="labels")
-    model = PyroLatentSpaceAttention(adata)
-    model.train(max_epochs=1, train_size=1)
-    model.get_latent(adata)
-    model.history
+    print(model.history)
 
     # tests __repr__
     print(model)

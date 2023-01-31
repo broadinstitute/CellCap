@@ -1,5 +1,6 @@
 import torch
 
+
 class MarkerWeight(torch.nn.Module):
     def __init__(self, latent_dim=20, drug_dim=2, prog_dim=10, key=True):
         super(MarkerWeight, self).__init__()
@@ -18,6 +19,7 @@ class MarkerWeight(torch.nn.Module):
     def get_parameters(self):
         parameter_list = [{"params": self.parameters(), "lr_mult": 1, 'decay_mult': 2}]
         return parameter_list
+
 
 class DrugEncoder(torch.nn.Module):
     def __init__(self, latent_dim=20, drug_dim=2, prog_dim=10, key=True):

@@ -1,7 +1,9 @@
 import torch
 import torch.nn.functional as F
-
 from torch import Tensor
+
+from typing import Tuple
+
 
 class DotProductAttention(torch.nn.Module):
     """

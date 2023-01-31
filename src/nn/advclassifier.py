@@ -1,5 +1,14 @@
 import torch
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from scvi.train._trainingplans import TrainingPlan
+from scvi.module.base._base_module import BaseModuleClass
+from scvi._compat import Literal
+from .base import init_weights
+
 from easydl import aToBSheduler
+
+from typing import Optional, Union
+
 
 def permute_dims(z):
     assert z.dim() == 2
@@ -13,6 +22,7 @@ def permute_dims(z):
 
     return torch.cat(perm_z, 1)
 
+
 # Gradiant reverse
 class GradientReverseLayer(torch.autograd.Function):
     @staticmethod
@@ -24,6 +34,7 @@ class GradientReverseLayer(torch.autograd.Function):
     def backward(ctx, grad_outputs):
         coeff = ctx.coeff
         return None, -coeff * grad_outputs
+
 
 class GradientReverseModule(torch.nn.Module):
     def __init__(self, scheduler):
@@ -37,6 +48,7 @@ class GradientReverseModule(torch.nn.Module):
         self.coeff = self.scheduler(self.global_step)
         self.global_step += 1.0
         return self.grl(self.coeff, x)
+
 
 class AdvNet(torch.nn.Module):
     def __init__(self, in_feature=20, hidden_size=20, out_dim=2):
@@ -80,8 +92,6 @@ class AdvNet(torch.nn.Module):
     def output_num(self):
         return 1
 
-##training plan
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 def _compute_kl_weight(
         epoch: int,
@@ -101,6 +111,7 @@ def _compute_kl_weight(
     if min_weight is not None:
         kl_weight = max(kl_weight, min_weight)
     return kl_weight
+
 
 class FactorTrainingPlan(TrainingPlan):
 
