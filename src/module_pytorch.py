@@ -46,6 +46,8 @@ from .nn.drugencoder import DrugEncoder
 from .nn.donorencoder import DonorEncoder
 from .nn.advclassifier import AdvNet
 from .nn.base import entropy
+from .training_plan import LoggedTrainingPlan
+from .utils import log_metric
 
 
 class LINEARVAE(BaseModuleClass):
@@ -430,7 +432,11 @@ class LINEARVAE(BaseModuleClass):
             kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z
         )
         kl_global = torch.tensor(0.0)
-        # TODO: insert other metrics here in LossRecorder() as key=value pairs
+
+        # TODO: you can log metrics this way
+        # log_metric("metric_name", tensor)
+
+        # TODO: can you insert other metrics here in LossRecorder() as key=value pairs?
         return LossRecorder(loss, reconst_loss, kl_local, kl_global)
 
     @torch.no_grad()
@@ -824,7 +830,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             use_gpu=use_gpu,
         )
 
-        training_plan = TrainingPlan(self.module, **plan_kwargs)
+        training_plan = LoggedTrainingPlan(self.module, **plan_kwargs)
         # training_plan = AdversarialTrainingPlan(self.module, adversarial_classifier=True, **plan_kwargs)
 
         runner = TrainRunner(
