@@ -1,5 +1,12 @@
 import torch
-from easydl import aToBSheduler
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from scvi.train._trainingplans import TrainingPlan
+from scvi.module.base._base_module import BaseModuleClass
+from scvi._compat import Literal
+from .base import init_weights
+
+from typing import Optional, Union
+
 
 def permute_dims(z):
     assert z.dim() == 2
@@ -13,6 +20,7 @@ def permute_dims(z):
 
     return torch.cat(perm_z, 1)
 
+
 # Gradiant reverse
 class GradientReverseLayer(torch.autograd.Function):
     @staticmethod
@@ -25,18 +33,20 @@ class GradientReverseLayer(torch.autograd.Function):
         coeff = ctx.coeff
         return None, -coeff * grad_outputs
 
+
 class GradientReverseModule(torch.nn.Module):
-    def __init__(self, scheduler):
+    def __init__(self, coeff_schedule):
         super(GradientReverseModule, self).__init__()
-        self.scheduler = scheduler
+        self.coeff_schedule = coeff_schedule
         self.global_step = 0.0
         self.coeff = 0.0
         self.grl = GradientReverseLayer.apply
 
     def forward(self, x):
-        self.coeff = self.scheduler(self.global_step)
+        self.coeff = self.coeff_schedule[int(self.global_step)]
         self.global_step += 1.0
         return self.grl(self.coeff, x)
+
 
 class AdvNet(torch.nn.Module):
     def __init__(self, in_feature=20, hidden_size=20, out_dim=2):
@@ -56,10 +66,10 @@ class AdvNet(torch.nn.Module):
         self.alpha = 10
         self.low = 0.0
         self.high = 1.0
-        self.max_iter = 10000.0
-        self.grl = GradientReverseModule(lambda step: aToBSheduler(step, 0.0, 1.0,
-                                                                   gamma=10,
-                                                                   max_iter=self.max_iter))
+        self.max_iter = 10000
+        self.grl = GradientReverseModule(
+            torch.linspace(start=self.low, end=self.high, steps=self.max_iter),
+        )
 
     def forward(self, x, reverse=True, if_activation=True):
         if reverse:
@@ -80,8 +90,6 @@ class AdvNet(torch.nn.Module):
     def output_num(self):
         return 1
 
-##training plan
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 def _compute_kl_weight(
         epoch: int,
@@ -101,6 +109,7 @@ def _compute_kl_weight(
     if min_weight is not None:
         kl_weight = max(kl_weight, min_weight)
     return kl_weight
+
 
 class FactorTrainingPlan(TrainingPlan):
 

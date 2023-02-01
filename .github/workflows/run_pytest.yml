@@ -1,0 +1,36 @@
+# Run the package's tests
+
+name: 'pytest'
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+
+    runs-on: 'ubuntu-latest'
+    strategy:
+      matrix:
+        python-version: ['3.7']
+
+    steps:
+    - name: 'Checkout repo'
+      uses: actions/checkout@v3
+
+    - name: 'Set up Python ${{ matrix.python-version }}'
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: 'Install package including pytest'
+      run: pip install .[dev]
+
+    - name: 'Test with pytest'
+      run: pytest
+
+    - name: 'Print package versions'
+      run: pip list

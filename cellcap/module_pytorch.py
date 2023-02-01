@@ -36,17 +36,18 @@ from scvi.utils import setup_anndata_dsp
 
 logger = logging.getLogger(__name__)
 
-from easydl import aToBSheduler
 from typing import Callable, Iterable, Optional, List, Union, Tuple
 
 torch.backends.cudnn.benchmark = True
 
-from .nn import DotProductAttention, DrugEncoder, DonorEncoder, AdvNet
+from .nn.attention import DotProductAttention
+from .nn.drugencoder import DrugEncoder
+from .nn.donorencoder import DonorEncoder
+from .nn.advclassifier import AdvNet
+from .nn.base import entropy
+from .training_plan import LoggedTrainingPlan
+from .utils import log_metric
 
-def entropy(x,temp=1.0):
-    p = F.softmax(x/temp, dim=1)# + 1e-8
-    logp = F.log_softmax(x/temp,dim=1)# + 1e-8
-    return -(p*logp).sum(dim=1)
 
 class LINEARVAE(BaseModuleClass):
     """
@@ -66,16 +67,16 @@ class LINEARVAE(BaseModuleClass):
     def __init__(
         self,
         n_input: int,
-        n_batch: int = 0,
-        n_labels: int = 0,
-        n_hidden: int = 128,
-        n_latent: int = 10,
-        n_layers: int = 1,
-        n_drug: int = 3,
-        n_target: int = 5,
-        n_control: int = 3,
-        n_prog: int = 5,
-        n_donor: int = 5,
+        n_batch: int,
+        n_labels: int,
+        n_hidden: int,
+        n_latent: int,
+        n_layers: int,
+        n_drug: int,
+        n_target: int,
+        n_control: int,
+        n_prog: int,
+        n_donor: int,
         n_continuous_cov: int = 0,
         n_layers_encoder: int = 1,
         n_cats_per_cov: Optional[Iterable[int]] = None,
@@ -430,6 +431,11 @@ class LINEARVAE(BaseModuleClass):
             kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z
         )
         kl_global = torch.tensor(0.0)
+
+        # TODO: you can log metrics this way
+        # log_metric("metric_name", tensor)
+
+        # TODO: can you insert other metrics here in LossRecorder() as key=value pairs?
         return LossRecorder(loss, reconst_loss, kl_local, kl_global)
 
     @torch.no_grad()
@@ -521,6 +527,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             n_hidden: int = 128,
             n_latent: int = 10,
             n_layers: int = 1,
+            n_prog: int = 5,
             dropout_rate: float = 0.1,
             n_batch: int = 0,
             dispersion: Literal["gene", "gene-batch", "gene-label", "gene-cell"] = "gene",
@@ -532,11 +539,20 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             **model_kwargs,
     ):
         super(CellCap, self).__init__(adata)
+        # print(self.adata_manager.registry.keys())
         self.module = LINEARVAE(
             n_input=self.summary_stats["n_vars"],
             n_batch=self.summary_stats["n_batch"],
             n_hidden=n_hidden,
             n_latent=n_latent,
+            n_layers=n_layers,
+            # TODO: how to access all these fields from the registered anndata correctly?
+            n_labels=self._get_adata_n_categories(REGISTRY_KEYS.LABELS_KEY),
+            n_drug=self._get_adata_n_categories("DRUG_KEY"),
+            n_target=self._get_adata_n_categories("TARGET_KEY"),
+            n_control=self._get_adata_n_categories("CONT_KEY"),
+            n_prog=n_prog,
+            n_donor=self._get_adata_n_categories("DONOR_KEY"),
             n_layers_encoder=n_layers,
             dropout_rate=dropout_rate,
             dispersion=dispersion,
@@ -560,6 +576,14 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         self.use_batch_norm = use_batch_norm
         self.n_latent = n_latent
         self.init_params_ = self._get_init_params(locals())
+
+    def _get_adata_n_categories(self, registry_key: str) -> int:
+        """
+        Get the number of categories for a categorical field registered in
+        the anndata_manager.
+        """
+        entry = self.adata_manager.registry['field_registries']['PERT_KEY']
+        return len(entry['state_registry']['categorical_mapping'])
 
     @torch.no_grad()
     def get_loadings(self) -> np.ndarray:
@@ -805,7 +829,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             use_gpu=use_gpu,
         )
 
-        training_plan = TrainingPlan(self.module, **plan_kwargs)
+        training_plan = LoggedTrainingPlan(self.module, **plan_kwargs)
         # training_plan = AdversarialTrainingPlan(self.module, adversarial_classifier=True, **plan_kwargs)
 
         runner = TrainRunner(

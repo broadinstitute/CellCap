@@ -34,7 +34,7 @@ def get_version() -> str:
 
 
 setuptools.setup(
-    name='scresponse',
+    name='cellcap',
     version=get_version(),
     description='A software package for distilling interpretable insights from '
                 'high-throughput single-cell RNA sequencing (scRNA-seq) '
@@ -53,7 +53,9 @@ setuptools.setup(
     license='BSD (3-Clause)',
     packages=setuptools.find_packages(),
     install_requires=get_requirements(),
-    tests_require=['pytest'],
+    extras_require={
+        'dev': ['pytest', 'black', 'flake8'],
+    },
     # entry_points={
     #     'console_scripts': ['cellbender=cellbender.base_cli:main'],
     # },

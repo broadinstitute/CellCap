@@ -1,7 +1,9 @@
 import torch
+from .base import init_weights
+
 
 class DonorWeight(torch.nn.Module):
-    def __init__(self, latent_dim=20, donor_dim=2):
+    def __init__(self, latent_dim, donor_dim):
         super(DonorWeight, self).__init__()
         self.latent_dim = latent_dim
         self.donor_dim = donor_dim
@@ -15,9 +17,12 @@ class DonorWeight(torch.nn.Module):
         parameter_list = [{"params": self.parameters(), "lr_mult": 1, 'decay_mult': 2}]
         return parameter_list
 
+    def __repr__(self):
+        return f"DonorWeight with shape {self.weight.shape}"
+
 
 class DonorEncoder(torch.nn.Module):
-    def __init__(self, latent_dim=20, donor_dim=2):
+    def __init__(self, latent_dim, donor_dim):
         super(DonorEncoder, self).__init__()
         self.latent_dim = latent_dim
         self.donor_dim = donor_dim

@@ -1,5 +1,9 @@
 ##ARD regularization
+
 import torch
+from .base import init_weights
+
+
 class ARD_dist(torch.nn.Module):
     def __init__(self, drug_dim=2, prog_dim=10):
         super(ARD_dist, self).__init__()

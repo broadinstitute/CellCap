@@ -3,8 +3,7 @@
 import pytest
 import torch
 import anndata
-
-from scvi.data import synthetic_iid
+from ..utils import generate_simulated_dataset
 
 
 USE_CUDA = torch.cuda.is_available()
@@ -13,4 +12,4 @@ USE_CUDA = torch.cuda.is_available()
 @pytest.fixture(scope='session')
 def simulated_dataset() -> anndata.AnnData:
     """Generate a small simulated dataset once and make it visible to all tests"""
-    return synthetic_iid()
+    return generate_simulated_dataset()
