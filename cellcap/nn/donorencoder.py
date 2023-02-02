@@ -1,6 +1,4 @@
 import torch
-from .base import init_weights
-
 
 class DonorWeight(torch.nn.Module):
     def __init__(self, latent_dim, donor_dim):
@@ -28,7 +26,6 @@ class DonorEncoder(torch.nn.Module):
         self.donor_dim = donor_dim
         self.donor_weights = DonorWeight(latent_dim=self.latent_dim,
                                          donor_dim=self.donor_dim)
-        self.apply(init_weights)
 
     def forward(self, y):
         d = self.donor_weights(y)

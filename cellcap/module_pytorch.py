@@ -1,12 +1,8 @@
-"""Module for scvi-tools written in pytorch"""
-
 import logging
 import numpy as np
 import pandas as pd
-from anndata import AnnData
 
 import torch
-from torch import Tensor
 from torch import logsumexp
 import torch.nn.functional as F
 from torch.distributions import Normal, Poisson
@@ -14,87 +10,75 @@ from torch.distributions import kl_divergence as kl
 
 from scvi import REGISTRY_KEYS
 from scvi._compat import Literal
-from scvi.train import TrainRunner
-from scvi.train import TrainingPlan
-from scvi.dataloaders import DataSplitter
-from scvi.train._callbacks import SaveBestState
 from scvi.nn import Encoder, LinearDecoderSCVI, one_hot
 from scvi.module.base import BaseModuleClass, LossRecorder, auto_move_data
 from scvi.distributions import ZeroInflatedNegativeBinomial, NegativeBinomial
-from scvi.model.base import UnsupervisedTrainingMixin, BaseModelClass, RNASeqMixin, VAEMixin
 
-from scvi.data.fields import (
-    CategoricalJointObsField,
-    CategoricalObsField,
-    LayerField,
-    NumericalJointObsField,
-    NumericalObsField,
-    ObsmField,
-)
-from scvi.data import AnnDataManager
-from scvi.utils import setup_anndata_dsp
+from typing import Callable, Iterable, Optional
 
-logger = logging.getLogger(__name__)
-
-from typing import Callable, Iterable, Optional, List, Union, Tuple
-
-torch.backends.cudnn.benchmark = True
-
-from .nn.attention import DotProductAttention
 from .nn.drugencoder import DrugEncoder
 from .nn.donorencoder import DonorEncoder
-from .nn.advclassifier import AdvNet
-from .nn.base import entropy
-from .training_plan import LoggedTrainingPlan
-from .utils import log_metric
+from .nn.attention import DotProductAttention
+from .nn.advclassifier import AdvNet, FactorTrainingPlan
+
+torch.backends.cudnn.benchmark = True
+logger = logging.getLogger(__name__)
+
+def entropy(x, temp=1.0):
+    p = F.softmax(x / temp, dim=1)# + 1e-8
+    logp = F.log_softmax(x / temp, dim=1)# + 1e-8
+    return -(p*logp).sum(dim=1)
 
 
+def off_diagonal(x):
+    # return a flattened view of the off-diagonal elements of a square matrix
+    n, m = x.shape
+    assert n == m
+    return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
+
+
+def cal_off_diagonal_corr(z):
+    c = z[0, :, :].T @ z[0, :, :]
+    off_diag = off_diagonal(c).pow_(2).sum()
+    for i in range(1,z.shape[0]):
+        c = z[i, :, :].T @ z[i, :, :]
+        off_diag += off_diagonal(c).pow_(2).sum()
+    return off_diag
+
+# VAE model
 class LINEARVAE(BaseModuleClass):
-    """
-    Skeleton Variational auto-encoder model.
-
-    Here we implement a basic version of scVI's underlying VAE [Lopez18]_.
-    This implementation is for instructional purposes only.
-
-    Parameters
-    ----------
-    n_input
-        Number of input genes
-    n_latent
-        Dimensionality of the latent space
-    """
 
     def __init__(
-        self,
-        n_input: int,
-        n_batch: int,
-        n_labels: int,
-        n_hidden: int,
-        n_latent: int,
-        n_layers: int,
-        n_drug: int,
-        n_target: int,
-        n_control: int,
-        n_prog: int,
-        n_donor: int,
-        n_continuous_cov: int = 0,
-        n_layers_encoder: int = 1,
-        n_cats_per_cov: Optional[Iterable[int]] = None,
-        dropout_rate: float = 0.1,
-        dispersion: str = "gene",
-        log_variational: bool = True,
-        gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb",
-        latent_distribution: str = "normal",
-        encode_covariates: bool = False,
-        deeply_inject_covariates: bool = True,
-        use_batch_norm: Literal["encoder", "decoder", "none", "both"] = "both",
-        use_layer_norm: Literal["encoder", "decoder", "none", "both"] = "none",
-        use_size_factor_key: bool = False,
-        use_observed_lib_size: bool = True,
-        library_log_means: Optional[np.ndarray] = None,
-        library_log_vars: Optional[np.ndarray] = None,
-        var_activation: Optional[Callable] = None,
-        bias: bool = False,
+            self,
+            n_input: int,
+            n_batch: int = 0,
+            n_labels: int = 0,
+            n_hidden: int = 128,
+            n_latent: int = 10,
+            n_layers: int = 1,
+            n_drug: int = 3,
+            n_target: int = 5,
+            n_control: int = 3,
+            n_prog: int = 5,
+            n_donor: int = 5,
+            n_continuous_cov: int = 0,
+            n_layers_encoder: int = 1,
+            n_cats_per_cov: Optional[Iterable[int]] = None,
+            dropout_rate: float = 0.1,
+            dispersion: str = "gene",
+            log_variational: bool = True,
+            gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb",
+            latent_distribution: str = "normal",
+            encode_covariates: bool = False,
+            deeply_inject_covariates: bool = True,
+            use_batch_norm: Literal["encoder", "decoder", "none", "both"] = "both",
+            use_layer_norm: Literal["encoder", "decoder", "none", "both"] = "none",
+            use_size_factor_key: bool = False,
+            use_observed_lib_size: bool = True,
+            library_log_means: Optional[np.ndarray] = None,
+            library_log_vars: Optional[np.ndarray] = None,
+            var_activation: Optional[Callable] = None,
+            bias: bool = False,
     ):
         super().__init__()
         self.dispersion = dispersion
@@ -165,11 +149,15 @@ class LINEARVAE(BaseModuleClass):
             use_layer_norm=False,
         )
 
-        self.d_encoder = DrugEncoder(n_latent, n_drug, n_prog)
-        self.c_encoder = DrugEncoder(n_latent, n_control, n_prog)
-        self.d_encoder_key = DrugEncoder(n_latent, n_drug, n_prog)
-        self.c_encoder_key = DrugEncoder(n_latent, n_control, n_prog)
+        self.d_encoder = DrugEncoder(n_latent, n_drug, n_prog)# ,key=False)
+        self.c_encoder = DrugEncoder(n_latent, n_control, n_prog)# ,key=False)
+        self.d_encoder_key = DrugEncoder(n_latent, n_drug, n_prog, key=True)
+        self.c_encoder_key = DrugEncoder(n_latent, n_control, n_prog, key=True)
+
         self.donor_encoder = DonorEncoder(n_latent, n_donor)
+
+        self.ard_d = ARDregularizer(n_drug, n_prog)
+        self.ard_c = ARDregularizer(n_control, n_prog)
 
         self.attention = DotProductAttention()
 
@@ -260,7 +248,7 @@ class LINEARVAE(BaseModuleClass):
         return local_library_log_means, local_library_log_vars
 
     @auto_move_data
-    def inference(self, x, d, c, donor, batch_index, pert_index, cont_covs=None, cat_covs=None, n_samples=1):
+    def inference(self, x, d, c, donor, batch_index, cat_covs=None, n_samples=1):
         """
         High level inference method.
 
@@ -296,7 +284,15 @@ class LINEARVAE(BaseModuleClass):
         Zc = Zc.squeeze(1)
         attC = attC.squeeze(1)
 
+        alpha_ip_d = self.ard_d(d)
+        alpha_ip_c = self.ard_c(c)
+
         prob = self.classifier(z)
+
+        z = F.normalize(z, p=2, dim=1)
+        Zp = F.normalize(Zp, p=2, dim=1)
+        Zc = F.normalize(Zc, p=2, dim=1)
+        Zd = F.normalize(Zd, p=2, dim=1)
 
         if not self.use_observed_lib_size:
             library = library_encoded
@@ -316,12 +312,14 @@ class LINEARVAE(BaseModuleClass):
                 library = Normal(ql_m, ql_v.sqrt()).sample()
         outputs = dict(z=z, qz_m=qz_m, qz_v=qz_v, ql_m=ql_m, ql_v=ql_v,
                        prob=prob, Zp=Zp, Zc=Zc, Zd=Zd, library=library,
-                       attP=attP, attC=attC)
+                       attP=attP, attC=attC,
+                       alpha_ip_d=alpha_ip_d, alpha_ip_c=alpha_ip_c,
+                       )
         return outputs
 
     @auto_move_data
-    def generative(self, z, Zp, Zc, Zd, library, batch_index, cont_covs=None, cat_covs=None, size_factor=None, y=None,
-                   transform_batch=None):
+    def generative(self, z, Zp, Zc, Zd, library, batch_index, cont_covs=None, cat_covs=None,
+                   size_factor=None, y=None, transform_batch=None):
         """Runs the generative model."""
         # Likelihood distribution
         zA = z + Zp + Zc + Zd
@@ -361,7 +359,6 @@ class LINEARVAE(BaseModuleClass):
                 mu=px_rate,
                 theta=px_r,
                 zi_logits=px_dropout,
-                # total_count=px_scale,
             )
         elif self.gene_likelihood == "nb":
             px = NegativeBinomial(mu=px_rate, theta=px_r)
@@ -416,26 +413,30 @@ class LINEARVAE(BaseModuleClass):
             kl_divergence_l = 0.0
 
         reconst_loss = -generative_outputs["px"].log_prob(x).sum(-1)
-        advers_loss = torch.nn.BCELoss(reduction='sum')(inference_outputs["prob"], l)
-
-        ent_penalty = entropy(generative_outputs["zA"])
 
         kl_local_for_warmup = kl_divergence_z
         kl_local_no_warmup = kl_divergence_l
-
         weighted_kl_local = kl_weight * kl_local_for_warmup + kl_local_no_warmup
 
-        loss = torch.mean(reconst_loss*0.5 + weighted_kl_local + advers_loss + ent_penalty*0.2)
+        advers_loss = torch.nn.BCELoss(reduction='sum')(inference_outputs["prob"], l)
+
+        ent_penalty = entropy(generative_outputs["zA"])
+        off_penalty = cal_off_diagonal_corr(self.d_encoder.drug_weights.weight) + cal_off_diagonal_corr(
+            self.c_encoder.drug_weights.weight)
+
+        ard_reg_d = Normal(loc=0., scale=1. / inference_outputs["alpha_ip_d"]).log_prob(inference_outputs["attP"]).sum()
+        ard_reg_c = Normal(loc=0., scale=1. / inference_outputs["alpha_ip_c"]).log_prob(inference_outputs["attC"]).sum()
+        ard_reg = ard_reg_d + ard_reg_c
+
+        loss = torch.mean(
+            reconst_loss * 0.8 + weighted_kl_local + advers_loss + ent_penalty * 0.2 + ard_reg * 0.00001
+        ) + off_penalty * 0.2
 
         kl_local = dict(
             kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z
         )
         kl_global = torch.tensor(0.0)
 
-        # TODO: you can log metrics this way
-        # log_metric("metric_name", tensor)
-
-        # TODO: can you insert other metrics here in LossRecorder() as key=value pairs?
         return LossRecorder(loss, reconst_loss, kl_local, kl_global)
 
     @torch.no_grad()
@@ -518,7 +519,7 @@ class LINEARVAE(BaseModuleClass):
         log_lkl = torch.sum(batch_log_lkl).item()
         return log_lkl
 
-
+##CellCap
 class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     def __init__(
@@ -527,7 +528,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             n_hidden: int = 128,
             n_latent: int = 10,
             n_layers: int = 1,
-            n_prog: int = 5,
             dropout_rate: float = 0.1,
             n_batch: int = 0,
             dispersion: Literal["gene", "gene-batch", "gene-label", "gene-cell"] = "gene",
@@ -539,20 +539,11 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             **model_kwargs,
     ):
         super(CellCap, self).__init__(adata)
-        # print(self.adata_manager.registry.keys())
         self.module = LINEARVAE(
             n_input=self.summary_stats["n_vars"],
             n_batch=self.summary_stats["n_batch"],
             n_hidden=n_hidden,
             n_latent=n_latent,
-            n_layers=n_layers,
-            # TODO: how to access all these fields from the registered anndata correctly?
-            n_labels=self._get_adata_n_categories(REGISTRY_KEYS.LABELS_KEY),
-            n_drug=self._get_adata_n_categories("DRUG_KEY"),
-            n_target=self._get_adata_n_categories("TARGET_KEY"),
-            n_control=self._get_adata_n_categories("CONT_KEY"),
-            n_prog=n_prog,
-            n_donor=self._get_adata_n_categories("DONOR_KEY"),
             n_layers_encoder=n_layers,
             dropout_rate=dropout_rate,
             dispersion=dispersion,
@@ -576,14 +567,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         self.use_batch_norm = use_batch_norm
         self.n_latent = n_latent
         self.init_params_ = self._get_init_params(locals())
-
-    def _get_adata_n_categories(self, registry_key: str) -> int:
-        """
-        Get the number of categories for a categorical field registered in
-        the anndata_manager.
-        """
-        entry = self.adata_manager.registry['field_registries']['PERT_KEY']
-        return len(entry['state_registry']['categorical_mapping'])
 
     @torch.no_grad()
     def get_loadings(self) -> np.ndarray:
@@ -611,7 +594,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         for p in self.module.d_encoder.drug_weights.parameters():
             weights.append(p)
         w = weights[0]
-        # w = F.normalize(w, p=2, dim=2)
+        w = F.normalize(w, p=2, dim=2)
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
@@ -632,7 +615,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         for p in self.module.donor_encoder.drug_weights.parameters():
             weights.append(p)
         w = weights[0]
-        # w = F.normalize(w, p=2, dim=1)
+        w = F.normalize(w, p=2, dim=1)
         loadings = torch.Tensor.cpu(w).detach().numpy()
         loadings = pd.DataFrame(loadings.T)
 
@@ -658,7 +641,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             outputs = self.module.inference(**inference_inputs)
             z = outputs["z"]
             embedding += [z.cpu()]
-        return np.array(F.normalize(torch.cat(embedding), p=2, dim=1))
+        return np.array(torch.cat(embedding))
 
     @torch.no_grad()
     def get_pert_embedding(
@@ -685,7 +668,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             attP = outputs["attP"]
             atts += [attP.cpu()]
 
-        return np.array(F.normalize(torch.cat(embedding), p=2, dim=1)), np.array(torch.cat(atts))
+        return np.array(torch.cat(embedding)), np.array(torch.cat(atts))
 
     @torch.no_grad()
     def get_control_embedding(
@@ -700,7 +683,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(
             adata=adata, batch_size=batch_size
-        )  # indices=indices,
+        )
         embedding = []
         atts = []
         for tensors in post:
@@ -712,7 +695,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             attC = outputs["attC"]
             atts += [attC.cpu()]
 
-        return np.array(F.normalize(torch.cat(embedding), p=2, dim=1)), np.array(torch.cat(atts))
+        return np.array(torch.cat(embedding)), np.array(torch.cat(atts))
 
     @torch.no_grad()
     def get_donor_embedding(
@@ -734,7 +717,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             outputs = self.module.inference(**inference_inputs)
             z = outputs["Zd"]
             embedding += [z.cpu()]
-        return np.array(F.normalize(torch.cat(embedding), p=2, dim=1))
+        return np.array(torch.cat(embedding))
 
     @torch.no_grad()
     def get_embedding(
@@ -754,9 +737,10 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
-            Za = outputs['z'] + outputs["Zp"]
-            embedding += [Za.cpu()]
-        return np.array(F.normalize(torch.cat(embedding), p=2, dim=1))
+            z = outputs["z"]
+            Zp = outputs["Zp"]
+            embedding += [z.cpu() + Zp.cpu()]
+        return np.array(torch.cat(embedding))
 
     @torch.no_grad()
     def predict(
@@ -778,7 +762,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             outputs = self.module.inference(**inference_inputs)
             generative_inputs = self.module._get_generative_input(tensors, outputs)
             outputs = self.module.generative(**generative_inputs)
-            out = outputs['px'].mu
+            out = outputs['px'].sample()
             preditions += [out.cpu()]
         return np.array(torch.cat(preditions))
 
@@ -829,8 +813,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             use_gpu=use_gpu,
         )
 
-        training_plan = LoggedTrainingPlan(self.module, **plan_kwargs)
-        # training_plan = AdversarialTrainingPlan(self.module, adversarial_classifier=True, **plan_kwargs)
+        training_plan = FactorTrainingPlan(self.module, discriminator=True, scale_tc_loss=2.0, **plan_kwargs)
 
         runner = TrainRunner(
             self,

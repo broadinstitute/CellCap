@@ -6,11 +6,9 @@ import numpy as np
 
 from scvi.data import synthetic_iid
 
-
 def _random_one_hot(n_classes: int, n_samples: int):
     # https://stackoverflow.com/questions/45093615/random-one-hot-matrix-in-numpy
     return np.eye(n_classes)[np.random.choice(n_classes, n_samples)]
-
 
 def generate_simulated_dataset() -> anndata.AnnData:
 
@@ -30,7 +28,6 @@ def generate_simulated_dataset() -> anndata.AnnData:
 
     return adata
 
-
 class Metrics:
 
     def __init__(self):
@@ -48,7 +45,6 @@ class Metrics:
 
 
 _METRICS_TO_LOG = Metrics()
-
 
 def log_metric(name: str, tensor: torch.Tensor) -> None:
     """Log a value, saving it to the model history.

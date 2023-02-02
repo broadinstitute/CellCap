@@ -1,12 +1,20 @@
 import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+
 from scvi.train._trainingplans import TrainingPlan
 from scvi.module.base._base_module import BaseModuleClass
 from scvi._compat import Literal
-from .base import init_weights
 
 from typing import Optional, Union
 
+def init_weights(m):
+    classname = m.__class__.__name__
+    if classname.find('BatchNorm') != -1:
+        torch.nn.init.normal_(m.weight, 1.0, 0.02)
+        torch.nn.init.zeros_(m.bias)
+    elif classname.find('Linear') != -1:
+        torch.nn.init.xavier_normal_(m.weight)
+        torch.nn.init.zeros_(m.bias)
 
 def permute_dims(z):
     assert z.dim() == 2
@@ -20,32 +28,31 @@ def permute_dims(z):
 
     return torch.cat(perm_z, 1)
 
-
 # Gradiant reverse
 class GradientReverseLayer(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, coeff, input):
-        ctx.coeff = coeff
-        return input
 
     @staticmethod
-    def backward(ctx, grad_outputs):
-        coeff = ctx.coeff
-        return None, -coeff * grad_outputs
+    def forward(ctx, input_, alpha_):
+        ctx.save_for_backward(input_, alpha_)
+        output = input_
+        return output
 
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_input = None
+        _, alpha_ = ctx.saved_tensors
+        if ctx.needs_input_grad[0]:
+            grad_input = -grad_output * alpha_
+        return grad_input, None
 
 class GradientReverseModule(torch.nn.Module):
-    def __init__(self, coeff_schedule):
-        super(GradientReverseModule, self).__init__()
-        self.coeff_schedule = coeff_schedule
-        self.global_step = 0.0
-        self.coeff = 0.0
-        self.grl = GradientReverseLayer.apply
 
-    def forward(self, x):
-        self.coeff = self.coeff_schedule[int(self.global_step)]
-        self.global_step += 1.0
-        return self.grl(self.coeff, x)
+    def __init__(self, alpha=1., *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._alpha = torch.tensor(alpha, requires_grad=False)
+
+    def forward(self, input_):
+        return GradientReverseLayer.apply(input_, self._alpha)
 
 
 class AdvNet(torch.nn.Module):
@@ -62,14 +69,7 @@ class AdvNet(torch.nn.Module):
         self.dropout2 = torch.nn.Dropout(0.25)
         self.sigmoid = torch.nn.Sigmoid()
         self.apply(init_weights)
-        self.iter_num = 0
-        self.alpha = 10
-        self.low = 0.0
-        self.high = 1.0
-        self.max_iter = 10000
-        self.grl = GradientReverseModule(
-            torch.linspace(start=self.low, end=self.high, steps=self.max_iter),
-        )
+        self.grl = GradientReverseModule()
 
     def forward(self, x, reverse=True, if_activation=True):
         if reverse:
