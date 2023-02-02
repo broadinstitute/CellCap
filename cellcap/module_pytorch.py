@@ -19,8 +19,9 @@ from typing import Callable, Iterable, Optional
 from .nn.drugencoder import DrugEncoder
 from .nn.donorencoder import DonorEncoder
 from .nn.attention import DotProductAttention
-from .nn.advclassifier import AdvNet, FactorTrainingPlan
+from .nn.advclassifier import AdvNet
 
+from .training_plan import FactorTrainingPlan
 from .utils import entropy, cal_off_diagonal_corr
 
 torch.backends.cudnn.benchmark = True
