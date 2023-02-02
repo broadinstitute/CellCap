@@ -21,31 +21,12 @@ from .nn.donorencoder import DonorEncoder
 from .nn.attention import DotProductAttention
 from .nn.advclassifier import AdvNet, FactorTrainingPlan
 
+from .utils import entropy, cal_off_diagonal_corr
+
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
 
-def entropy(x, temp=1.0):
-    p = F.softmax(x / temp, dim=1)# + 1e-8
-    logp = F.log_softmax(x / temp, dim=1)# + 1e-8
-    return -(p*logp).sum(dim=1)
-
-
-def off_diagonal(x):
-    # return a flattened view of the off-diagonal elements of a square matrix
-    n, m = x.shape
-    assert n == m
-    return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
-
-
-def cal_off_diagonal_corr(z):
-    c = z[0, :, :].T @ z[0, :, :]
-    off_diag = off_diagonal(c).pow_(2).sum()
-    for i in range(1,z.shape[0]):
-        c = z[i, :, :].T @ z[i, :, :]
-        off_diag += off_diagonal(c).pow_(2).sum()
-    return off_diag
-
-# VAE model
+##VAE base
 class LINEARVAE(BaseModuleClass):
 
     def __init__(

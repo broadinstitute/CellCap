@@ -6,6 +6,25 @@ import numpy as np
 
 from scvi.data import synthetic_iid
 
+def entropy(x, temp=1.0):
+    p = F.softmax(x / temp, dim=1)# + 1e-8
+    logp = F.log_softmax(x / temp, dim=1)# + 1e-8
+    return -(p*logp).sum(dim=1)
+
+def off_diagonal(x):
+    # return a flattened view of the off-diagonal elements of a square matrix
+    n, m = x.shape
+    assert n == m
+    return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
+
+def cal_off_diagonal_corr(z):
+    c = z[0, :, :].T @ z[0, :, :]
+    off_diag = off_diagonal(c).pow_(2).sum()
+    for i in range(1,z.shape[0]):
+        c = z[i, :, :].T @ z[i, :, :]
+        off_diag += off_diagonal(c).pow_(2).sum()
+    return off_diag
+
 def _random_one_hot(n_classes: int, n_samples: int):
     # https://stackoverflow.com/questions/45093615/random-one-hot-matrix-in-numpy
     return np.eye(n_classes)[np.random.choice(n_classes, n_samples)]
