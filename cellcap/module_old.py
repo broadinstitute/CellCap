@@ -1,6 +1,7 @@
 import logging
 import numpy as np
 import pandas as pd
+from anndata import AnnData
 
 import torch
 from torch import logsumexp
@@ -10,12 +11,26 @@ from torch.distributions import kl_divergence as kl
 
 from scvi import REGISTRY_KEYS
 from scvi._compat import Literal
+from scvi.train import TrainRunner
+from scvi.dataloaders import DataSplitter
 from scvi.train._callbacks import SaveBestState
 from scvi.nn import Encoder, LinearDecoderSCVI, one_hot
 from scvi.module.base import BaseModuleClass, LossRecorder, auto_move_data
 from scvi.distributions import ZeroInflatedNegativeBinomial, NegativeBinomial
+from scvi.model.base import UnsupervisedTrainingMixin, BaseModelClass, RNASeqMixin, VAEMixin
 
-from typing import Callable, Iterable, Optional
+from scvi.data import AnnDataManager
+from scvi.utils import setup_anndata_dsp
+from scvi.data.fields import (
+    CategoricalJointObsField,
+    CategoricalObsField,
+    LayerField,
+    NumericalJointObsField,
+    NumericalObsField,
+    ObsmField,
+)
+
+from typing import Callable, Iterable, Optional, List, Union, Tuple, Dict
 
 from .nn.drugencoder import DrugEncoder
 from .nn.donorencoder import DonorEncoder

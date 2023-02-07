@@ -1,6 +1,7 @@
 import logging
 import numpy as np
 import pandas as pd
+from anndata import AnnData
 
 import torch
 from torch import logsumexp
@@ -10,12 +11,26 @@ from torch.distributions import kl_divergence as kl
 
 from scvi import REGISTRY_KEYS
 from scvi._compat import Literal
+from scvi.train import TrainRunner
+from scvi.dataloaders import DataSplitter
 from scvi.train._callbacks import SaveBestState
 from scvi.nn import Encoder, LinearDecoderSCVI, one_hot
 from scvi.module.base import BaseModuleClass, LossRecorder, auto_move_data
 from scvi.distributions import ZeroInflatedNegativeBinomial, NegativeBinomial
+from scvi.model.base import UnsupervisedTrainingMixin, BaseModelClass, RNASeqMixin, VAEMixin
 
-from typing import Callable, Iterable, Optional
+from scvi.data import AnnDataManager
+from scvi.utils import setup_anndata_dsp
+from scvi.data.fields import (
+    CategoricalJointObsField,
+    CategoricalObsField,
+    LayerField,
+    NumericalJointObsField,
+    NumericalObsField,
+    ObsmField,
+)
+
+from typing import Callable, Iterable, Optional, List, Union, Tuple, Dict
 
 from .nn.donorencoder import DonorEncoder
 from .nn.advclassifier import AdvNet
@@ -233,7 +248,8 @@ class LINEARVAE(BaseModuleClass):
         return local_library_log_means, local_library_log_vars
 
     @auto_move_data
-    def inference(self, x, d, donor, batch_index,cat_covs=None, n_samples=1):
+    def inference(self, x, d, c, donor, batch_index, pert_index,
+                  cont_covs=None, cat_covs=None, n_samples=1):
         """
         High level inference method.
 
@@ -299,7 +315,7 @@ class LINEARVAE(BaseModuleClass):
         return outputs
 
     @auto_move_data
-    def generative(self, z, Zp, Zd, library, batch_index, cat_covs=None,
+    def generative(self, z, Zp, Zd, library, batch_index, cont_covs=None, cat_covs=None,
                    size_factor=None, y=None, transform_batch=None):
         """Runs the generative model."""
         # Likelihood distribution

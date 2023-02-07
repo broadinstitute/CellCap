@@ -1,14 +1,28 @@
 """Training plan with arbitrary logging"""
+import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from scvi._compat import Literal
 from scvi.train._trainingplans import TrainingPlan
 from scvi.module.base._base_module import BaseModuleClass
 
+from easydl import aToBSheduler
 from typing import Optional, Union
 
 from .utils import _METRICS_TO_LOG
 from .nn.advclassifier import AdvNet
+
+def permute_dims(z):
+    assert z.dim() == 2
+
+    B, _ = z.size()
+    perm_z = []
+    for z_j in z.split(1, 1):
+        perm = torch.randperm(B).to(z.device)
+        perm_z_j = z_j[perm]
+        perm_z.append(perm_z_j)
+
+    return torch.cat(perm_z, 1)
 
 def _compute_kl_weight(
         epoch: int,
