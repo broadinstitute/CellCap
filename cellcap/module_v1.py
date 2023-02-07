@@ -10,18 +10,17 @@ from torch.distributions import kl_divergence as kl
 
 from scvi import REGISTRY_KEYS
 from scvi._compat import Literal
+from scvi.train._callbacks import SaveBestState
 from scvi.nn import Encoder, LinearDecoderSCVI, one_hot
 from scvi.module.base import BaseModuleClass, LossRecorder, auto_move_data
 from scvi.distributions import ZeroInflatedNegativeBinomial, NegativeBinomial
 
 from typing import Callable, Iterable, Optional
 
-from .nn.drugencoder import DrugEncoder
 from .nn.donorencoder import DonorEncoder
-from .nn.attention import DotProductAttention
 from .nn.advclassifier import AdvNet
 
-from .training_plan import FactorTrainingPlan
+from .training_plan import FactorTrainingPlanB
 from .utils import entropy, cal_off_diagonal_corr
 
 torch.backends.cudnn.benchmark = True
@@ -78,6 +77,10 @@ class LINEARVAE(BaseModuleClass):
         self.n_target = n_target
         self.use_size_factor_key = use_size_factor_key
         self.use_observed_lib_size = use_size_factor_key or use_observed_lib_size
+
+        self.alpha = torch.nn.Parameter(torch.zeros(self.n_drug, self.n_prog) + self.n_prog)
+        self.weight = torch.nn.Parameter(torch.zeros(self.n_prog, self.n_latent))
+
         if not self.use_observed_lib_size:
             if library_log_means is None or library_log_means is None:
                 raise ValueError(
@@ -131,17 +134,19 @@ class LINEARVAE(BaseModuleClass):
             use_layer_norm=False,
         )
 
-        self.d_encoder = DrugEncoder(n_latent, n_drug, n_prog)# ,key=False)
-        self.c_encoder = DrugEncoder(n_latent, n_control, n_prog)# ,key=False)
-        self.d_encoder_key = DrugEncoder(n_latent, n_drug, n_prog, key=True)
-        self.c_encoder_key = DrugEncoder(n_latent, n_control, n_prog, key=True)
+        self.h_encoder = Encoder(
+            n_input + n_drug,#takes gene expression X and drug one-hot encoding d as input
+            # n_latent+n_drug,#takes basal latent z and drug one-hot encoding d as input
+            n_prog,
+            n_layers=n_layers_encoder,
+            n_hidden=n_hidden,
+            dropout_rate=dropout_rate,
+            inject_covariates=deeply_inject_covariates,
+            use_batch_norm=True,
+            use_layer_norm=False,
+        )
 
         self.donor_encoder = DonorEncoder(n_latent, n_donor)
-
-        self.ard_d = ARDregularizer(n_drug, n_prog)
-        self.ard_c = ARDregularizer(n_control, n_prog)
-
-        self.attention = DotProductAttention()
 
         # linear decoder goes from n_latent-dimensional space to n_input-d data
         self.decoder = LinearDecoderSCVI(
@@ -181,7 +186,6 @@ class LINEARVAE(BaseModuleClass):
     def _get_generative_input(self, tensors, inference_outputs):
         z = inference_outputs["z"]
         Zp = inference_outputs["Zp"]
-        Zc = inference_outputs["Zc"]
         Zd = inference_outputs["Zd"]
         library = inference_outputs["library"]
         batch_index = tensors[REGISTRY_KEYS.BATCH_KEY]
@@ -202,7 +206,6 @@ class LINEARVAE(BaseModuleClass):
         input_dict = dict(
             z=z,
             Zp=Zp,
-            Zc=Zc,
             Zd=Zd,
             library=library,
             batch_index=batch_index,
@@ -230,7 +233,7 @@ class LINEARVAE(BaseModuleClass):
         return local_library_log_means, local_library_log_vars
 
     @auto_move_data
-    def inference(self, x, d, c, donor, batch_index, cat_covs=None, n_samples=1):
+    def inference(self, x, d, donor, batch_index,cat_covs=None, n_samples=1):
         """
         High level inference method.
 
@@ -251,30 +254,9 @@ class LINEARVAE(BaseModuleClass):
         ql_m, ql_v, library_encoded = self.l_encoder(
             encoder_input, batch_index, *categorical_input
         )
+        h_m, h_v, h = self.h_encoder(torch.cat((encoder_input, d), dim=1), batch_index, *categorical_input)
 
         Zd = self.donor_encoder(donor)
-
-        Zp = self.d_encoder(d)
-        Zp_key = self.d_encoder_key(d)
-        Zc = self.c_encoder(c)
-        Zc_key = self.c_encoder_key(c)
-
-        Zp, attP = self.attention(z.unsqueeze(1), Zp_key, Zp)
-        Zp = Zp.squeeze(1)
-        attP = attP.squeeze(1)
-        Zc, attC = self.attention(z.unsqueeze(1), Zc_key, Zc)
-        Zc = Zc.squeeze(1)
-        attC = attC.squeeze(1)
-
-        alpha_ip_d = self.ard_d(d)
-        alpha_ip_c = self.ard_c(c)
-
-        prob = self.classifier(z)
-
-        z = F.normalize(z, p=2, dim=1)
-        Zp = F.normalize(Zp, p=2, dim=1)
-        Zc = F.normalize(Zc, p=2, dim=1)
-        Zd = F.normalize(Zd, p=2, dim=1)
 
         if not self.use_observed_lib_size:
             library = library_encoded
@@ -284,6 +266,7 @@ class LINEARVAE(BaseModuleClass):
             qz_v = qz_v.unsqueeze(0).expand((n_samples, qz_v.size(0), qz_v.size(1)))
             untran_z = Normal(qz_m, qz_v.sqrt()).sample()
             z = self.z_encoder.z_transformation(untran_z)
+
             ql_m = ql_m.unsqueeze(0).expand((n_samples, ql_m.size(0), ql_m.size(1)))
             ql_v = ql_v.unsqueeze(0).expand((n_samples, ql_v.size(0), ql_v.size(1)))
             if self.use_observed_lib_size:
@@ -292,19 +275,35 @@ class LINEARVAE(BaseModuleClass):
                 )
             else:
                 library = Normal(ql_m, ql_v.sqrt()).sample()
+
+            h_m = h_m.unsqueeze(0).expand((n_samples, h_m.size(0), h_m.size(1)))
+            h_v = h_v.unsqueeze(0).expand((n_samples, h_v.size(0), h_v.size(1)))
+            untran_h = Normal(h_m, h_v.sqrt()).sample()
+            h = self.h_encoder.z_transformation(untran_h)
+
+        alpha = torch.matmul(d, self.alpha)
+        alpha_ip = alpha.exp()
+        Zp = torch.torch.matmul(h, self.weight)
+
+        prob = self.classifier(z)
+
+        z = F.normalize(z, p=2, dim=1)
+        Zp = F.normalize(Zp, p=2, dim=1)
+        Zd = F.normalize(Zd, p=2, dim=1)
+
         outputs = dict(z=z, qz_m=qz_m, qz_v=qz_v, ql_m=ql_m, ql_v=ql_v,
-                       prob=prob, Zp=Zp, Zc=Zc, Zd=Zd, library=library,
-                       attP=attP, attC=attC,
-                       alpha_ip_d=alpha_ip_d, alpha_ip_c=alpha_ip_c,
+                       prob=prob, Zp=Zp, Zd=Zd, library=library,
+                       h=h, h_m=h_m, h_v=h_v,
+                       alpha_ip=alpha_ip,
                        )
         return outputs
 
     @auto_move_data
-    def generative(self, z, Zp, Zc, Zd, library, batch_index, cont_covs=None, cat_covs=None,
+    def generative(self, z, Zp, Zd, library, batch_index, cat_covs=None,
                    size_factor=None, y=None, transform_batch=None):
         """Runs the generative model."""
         # Likelihood distribution
-        zA = z + Zp + Zc + Zd
+        zA = z + Zp + Zd
         decoder_input = zA
 
         if cat_covs is not None:
@@ -378,6 +377,8 @@ class LINEARVAE(BaseModuleClass):
         qz_v = inference_outputs["qz_v"]
         ql_m = inference_outputs["ql_m"]
         ql_v = inference_outputs["ql_v"]
+        h_m = inference_outputs["h_m"]
+        h_v = inference_outputs["h_v"]
 
         mean = torch.zeros_like(qz_m)
         scale = torch.ones_like(qz_v)
@@ -402,17 +403,12 @@ class LINEARVAE(BaseModuleClass):
 
         advers_loss = torch.nn.BCELoss(reduction='sum')(inference_outputs["prob"], l)
 
-        ent_penalty = entropy(generative_outputs["zA"])
-        off_penalty = cal_off_diagonal_corr(self.d_encoder.drug_weights.weight) + cal_off_diagonal_corr(
-            self.c_encoder.drug_weights.weight)
+        ard_reg = kl(Normal(h_m, torch.sqrt(h_v)),
+                     Normal(loc=0., scale=1. / inference_outputs["alpha_ip"])).sum(
+            dim=1
+        )
 
-        ard_reg_d = Normal(loc=0., scale=1. / inference_outputs["alpha_ip_d"]).log_prob(inference_outputs["attP"]).sum()
-        ard_reg_c = Normal(loc=0., scale=1. / inference_outputs["alpha_ip_c"]).log_prob(inference_outputs["attC"]).sum()
-        ard_reg = ard_reg_d + ard_reg_c
-
-        loss = torch.mean(
-            reconst_loss * 0.8 + weighted_kl_local + advers_loss + ent_penalty * 0.2 + ard_reg * 0.00001
-        ) + off_penalty * 0.2
+        loss = torch.mean(reconst_loss * 0.8 + weighted_kl_local + advers_loss + ard_reg * 0.2)
 
         kl_local = dict(
             kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z
@@ -572,22 +568,14 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     def get_pert_loadings(self) -> pd.DataFrame:  # TO DO
 
-        weights = []
-        for p in self.module.d_encoder.drug_weights.parameters():
-            weights.append(p)
-        w = weights[0]
-        w = F.normalize(w, p=2, dim=2)
+        w = F.normalize(self.module.weight, p=2, dim=1)
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_ard_loadings(self) -> pd.DataFrame:  # TO DO
 
-        weights = []
-        for p in self.module.ard_d.ard_dist.parameters():
-            weights.append(p)
-        w = weights[0]
-        loadings = torch.Tensor.cpu(w).detach().numpy()
+        loadings = torch.Tensor.cpu(self.module.alpha).detach().numpy()
 
         return loadings
 
@@ -647,35 +635,9 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             Zp = outputs["Zp"]
             embedding += [Zp.cpu()]
 
-            attP = outputs["attP"]
+            attP = outputs["h"]
+            attP = F.softmax(attP / 0.5, dim=1)
             atts += [attP.cpu()]
-
-        return np.array(torch.cat(embedding)), np.array(torch.cat(atts))
-
-    @torch.no_grad()
-    def get_control_embedding(
-            self,
-            adata: Optional[AnnData] = None,
-            batch_size: Optional[int] = None,
-    ) -> np.ndarray:
-
-        if self.is_trained_ is False:
-            raise RuntimeError("Please train the model first.")
-
-        adata = self._validate_anndata(adata)
-        post = self._make_data_loader(
-            adata=adata, batch_size=batch_size
-        )
-        embedding = []
-        atts = []
-        for tensors in post:
-            inference_inputs = self.module._get_inference_input(tensors)
-            outputs = self.module.inference(**inference_inputs)
-            Zp = outputs["Zc"]
-            embedding += [Zp.cpu()]
-
-            attC = outputs["attC"]
-            atts += [attC.cpu()]
 
         return np.array(torch.cat(embedding)), np.array(torch.cat(atts))
 
@@ -795,7 +757,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             use_gpu=use_gpu,
         )
 
-        training_plan = FactorTrainingPlan(self.module, discriminator=True, scale_tc_loss=2.0, **plan_kwargs)
+        training_plan = FactorTrainingPlanB(self.module, discriminator=True, scale_tc_loss=1.0, **plan_kwargs)
 
         runner = TrainRunner(
             self,

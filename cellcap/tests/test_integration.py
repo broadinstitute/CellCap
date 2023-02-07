@@ -3,7 +3,7 @@
 # https://github.com/scverse/scvi-tools-skeleton/blob/main/tests/test_skeleton.py
 # with updates to use pytest fixtures
 
-from ..module_pytorch import CellCap
+from ..module_old import CellCap
 from .conftest import simulated_dataset
 
 
