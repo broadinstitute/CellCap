@@ -35,8 +35,8 @@ from typing import Callable, Iterable, Optional, List, Union, Tuple, Dict
 from .nn.donorencoder import DonorEncoder
 from .nn.advclassifier import AdvNet
 
+from .utils import entropy
 from .training_plan import FactorTrainingPlanB
-from .utils import entropy, cal_off_diagonal_corr
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)

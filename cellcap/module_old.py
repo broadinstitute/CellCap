@@ -37,8 +37,8 @@ from .nn.donorencoder import DonorEncoder
 from .nn.attention import DotProductAttention
 from .nn.advclassifier import AdvNet
 
+from .utils import entropy
 from .training_plan import FactorTrainingPlanA
-from .utils import entropy, cal_off_diagonal_corr
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
@@ -147,8 +147,8 @@ class LINEARVAE(BaseModuleClass):
             use_layer_norm=False,
         )
 
-        self.d_encoder = DrugEncoder(n_latent, n_drug, n_prog)# ,key=False)
-        self.c_encoder = DrugEncoder(n_latent, n_control, n_prog)# ,key=False)
+        self.d_encoder = DrugEncoder(n_latent, n_drug, n_prog ,key=False)
+        self.c_encoder = DrugEncoder(n_latent, n_control, n_prog ,key=False)
         self.d_encoder_key = DrugEncoder(n_latent, n_drug, n_prog, key=True)
         self.c_encoder_key = DrugEncoder(n_latent, n_control, n_prog, key=True)
 
@@ -275,22 +275,10 @@ class LINEARVAE(BaseModuleClass):
         Zc = self.c_encoder(c)
         Zc_key = self.c_encoder_key(c)
 
-        Zp, attP = self.attention(z.unsqueeze(1), Zp_key, Zp)
-        Zp = Zp.squeeze(1)
-        attP = attP.squeeze(1)
-        Zc, attC = self.attention(z.unsqueeze(1), Zc_key, Zc)
-        Zc = Zc.squeeze(1)
-        attC = attC.squeeze(1)
+
 
         alpha_ip_d = self.ard_d(d)
         alpha_ip_c = self.ard_c(c)
-
-        prob = self.classifier(z)
-
-        z = F.normalize(z, p=2, dim=1)
-        Zp = F.normalize(Zp, p=2, dim=1)
-        Zc = F.normalize(Zc, p=2, dim=1)
-        Zd = F.normalize(Zd, p=2, dim=1)
 
         if not self.use_observed_lib_size:
             library = library_encoded
@@ -308,6 +296,21 @@ class LINEARVAE(BaseModuleClass):
                 )
             else:
                 library = Normal(ql_m, ql_v.sqrt()).sample()
+
+        Zp, attP = self.attention(z.unsqueeze(1), Zp_key, Zp)
+        Zp = Zp.squeeze(1)
+        attP = attP.squeeze(1)
+        Zc, attC = self.attention(z.unsqueeze(1), Zc_key, Zc)
+        Zc = Zc.squeeze(1)
+        attC = attC.squeeze(1)
+
+        prob = self.classifier(z)
+
+        z = F.normalize(z, p=2, dim=1)
+        Zp = F.normalize(Zp, p=2, dim=1)
+        Zc = F.normalize(Zc, p=2, dim=1)
+        Zd = F.normalize(Zd, p=2, dim=1)
+
         outputs = dict(z=z, qz_m=qz_m, qz_v=qz_v, ql_m=ql_m, ql_v=ql_v,
                        prob=prob, Zp=Zp, Zc=Zc, Zd=Zd, library=library,
                        attP=attP, attC=attC,
@@ -417,18 +420,11 @@ class LINEARVAE(BaseModuleClass):
         weighted_kl_local = kl_weight * kl_local_for_warmup + kl_local_no_warmup
 
         advers_loss = torch.nn.BCELoss(reduction='sum')(inference_outputs["prob"], l)
-
         ent_penalty = entropy(generative_outputs["zA"])
-        off_penalty = cal_off_diagonal_corr(self.d_encoder.drug_weights.weight) + cal_off_diagonal_corr(
-            self.c_encoder.drug_weights.weight)
-
-        ard_reg_d = Normal(loc=0., scale=1. / inference_outputs["alpha_ip_d"]).log_prob(inference_outputs["attP"]).sum()
-        ard_reg_c = Normal(loc=0., scale=1. / inference_outputs["alpha_ip_c"]).log_prob(inference_outputs["attC"]).sum()
-        ard_reg = ard_reg_d + ard_reg_c
 
         loss = torch.mean(
-            reconst_loss * 0.8 + weighted_kl_local + advers_loss + ent_penalty * 0.2 + ard_reg * 0.00001
-        ) + off_penalty * 0.2
+            reconst_loss * 0.5 + weighted_kl_local + advers_loss + ent_penalty * 0.2
+        )
 
         kl_local = dict(
             kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z

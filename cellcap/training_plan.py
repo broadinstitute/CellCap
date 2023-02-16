@@ -146,12 +146,19 @@ class FactorTrainingPlanA(TrainingPlan):
 
             ard_reg_d = Normal(loc=0., scale=1. / outputs["alpha_ip_d"]).log_prob(outputs["attP"]).mean()
             ard_reg_c = Normal(loc=0., scale=1. / outputs["alpha_ip_c"]).log_prob(outputs["attC"]).mean()
-            loss = (ard_reg_d + ard_reg_c) * 0.00001
+            loss = -(ard_reg_d + ard_reg_c)
 
             return loss
 
     def configure_optimizers(self):
-        params1 = filter(lambda p: p.requires_grad, self.module.parameters())
+        Ma = list(self.module.z_encoder.parameters()) + \
+             list(self.module.l_encoder.parameters()) + \
+             list(self.module.decoder.parameters())
+        Mb = list(self.module.d_encoder.parameters()) + \
+             list(self.module.c_encoder.parameters()) + \
+             list(self.module.donor_encoder.parameters())
+        Mc = list(self.module.classifier.parameters())
+        params1 = filter(lambda p: p.requires_grad, Ma + Mb + Mc)
         optimizer1 = torch.optim.AdamW(
             params1, lr=self.lr, eps=0.01, weight_decay=self.weight_decay
         )
@@ -177,15 +184,15 @@ class FactorTrainingPlanA(TrainingPlan):
             lambda p: p.requires_grad, self.discriminator.parameters()
         )
         optimizer2 = torch.optim.AdamW(
-            params2, lr=self.lr, eps=0.01, weight_decay=self.weight_decay
-        )  # or self.lr
+            params2, lr=0.001, eps=0.01, weight_decay=self.weight_decay
+        )
         config2 = {"optimizer": optimizer2}
 
         Pa = list(self.module.ard_d.parameters()) + list(self.module.ard_c.parameters())
         Pb = list(self.module.d_encoder_key.parameters()) + list(self.module.c_encoder_key.parameters())
         params3 = filter(lambda p: p.requires_grad, Pa + Pb)
         optimizer3 = torch.optim.AdamW(
-            params3, lr=self.lr, eps=0.01, weight_decay=self.weight_decay
+            params3, lr=0.001, eps=0.01, weight_decay=self.weight_decay
         )
         config3 = {"optimizer": optimizer3}
 
