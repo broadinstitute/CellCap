@@ -4,7 +4,7 @@
 # with updates to use pytest fixtures
 
 import scanpy as sc
-from ..module_v1 import CellCap
+from ..module import CellCap
 #from .conftest import simulated_dataset
 data = '../tests/test.h5ad'
 

@@ -1,5 +1,5 @@
 """Namespace for the package"""
-from .module_v1 import CellCap
+from .module import CellCap
 from .utils import generate_simulated_dataset
 
 __all__ = [
