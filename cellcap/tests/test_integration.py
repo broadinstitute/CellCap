@@ -3,24 +3,31 @@
 # https://github.com/scverse/scvi-tools-skeleton/blob/main/tests/test_skeleton.py
 # with updates to use pytest fixtures
 
-from ..module_old import CellCap
-from .conftest import simulated_dataset
+import scanpy as sc
+from ..module_v1 import CellCap
+#from .conftest import simulated_dataset
+data = '../tests/test.h5ad'
 
-
-def test_mymodel(simulated_dataset):
+def test_mymodel(data):
     n_latent = 4
-    adata = simulated_dataset
+    adata = sc.read_h5ad(data)
     print(adata)
     kwargs = {}
     for k in adata.obsm_keys():
         kwargs.update({f"{k}_key": k})
-    CellCap.setup_anndata(adata=adata,
-                          batch_key="batch",
-                          labels_key="labels",
-                          pert_key="pert",
+    CellCap.setup_anndata(adata,
+                          labels_key='control',
+                          pert_key='Condition',
+                          layer="counts",
+                          cond_key='X_drug',
+                          cont_key='X_cont',
+                          target_key='X_target',
+                          donor_key='X_donor',
                           **kwargs)
     print(adata)
-    model = CellCap(adata=adata, n_latent=n_latent)
+    model = CellCap(adata=adata, n_latent=n_latent,
+                    n_drug=13,n_control=2,
+                    n_target=15,n_donor=36)
     model.train(1, check_val_every_n_epoch=1, train_size=0.5)
     print(model.history)
 
