@@ -26,8 +26,8 @@ def test_mymodel(data):
                           **kwargs)
     print(adata)
     model = CellCap(adata=adata, n_latent=n_latent,
-                    n_drug=13,n_control=2,
-                    n_target=15,n_donor=36)
+                    n_drug=12,n_control=2,
+                    n_target=14,n_donor=33)
     model.train(1, check_val_every_n_epoch=1, train_size=0.5)
     print(model.history)
 
