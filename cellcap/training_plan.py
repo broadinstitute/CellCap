@@ -6,7 +6,7 @@ from scvi._compat import Literal
 from scvi.train._trainingplans import TrainingPlan
 from scvi.module.base._base_module import BaseModuleClass
 
-#from easydl import aToBSheduler
+from easydl import aToBSheduler
 from typing import Optional, Union
 
 from .utils import _METRICS_TO_LOG
