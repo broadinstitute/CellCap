@@ -36,6 +36,7 @@ from .nn.drugencoder import DrugEncoder
 from .nn.donorencoder import DonorEncoder
 from .nn.attention import DotProductAttention
 from .nn.advclassifier import AdvNet
+from .nn.autoreldetermin import ARDregularizer
 
 from .utils import entropy
 from .training_plan import FactorTrainingPlanA
@@ -49,7 +50,6 @@ class LINEARVAE(BaseModuleClass):
     def __init__(
             self,
             n_input: int,
-            n_batch: int = 0,
             n_labels: int = 0,
             n_hidden: int = 128,
             n_latent: int = 10,
@@ -59,9 +59,7 @@ class LINEARVAE(BaseModuleClass):
             n_control: int = 3,
             n_prog: int = 5,
             n_donor: int = 5,
-            n_continuous_cov: int = 0,
             n_layers_encoder: int = 1,
-            n_cats_per_cov: Optional[Iterable[int]] = None,
             dropout_rate: float = 0.1,
             dispersion: str = "gene",
             log_variational: bool = True,
@@ -70,9 +68,7 @@ class LINEARVAE(BaseModuleClass):
             encode_covariates: bool = False,
             deeply_inject_covariates: bool = True,
             use_batch_norm: Literal["encoder", "decoder", "none", "both"] = "both",
-            use_layer_norm: Literal["encoder", "decoder", "none", "both"] = "none",
             use_size_factor_key: bool = False,
-            use_observed_lib_size: bool = True,
             library_log_means: Optional[np.ndarray] = None,
             library_log_vars: Optional[np.ndarray] = None,
             var_activation: Optional[Callable] = None,
@@ -83,7 +79,6 @@ class LINEARVAE(BaseModuleClass):
         self.n_latent = n_latent
         self.log_variational = log_variational
         self.gene_likelihood = gene_likelihood
-        self.n_batch = n_batch
         self.n_labels = n_labels
         self.latent_distribution = latent_distribution
         self.encode_covariates = encode_covariates
@@ -93,7 +88,7 @@ class LINEARVAE(BaseModuleClass):
         self.n_donor = n_donor
         self.n_target = n_target
         self.use_size_factor_key = use_size_factor_key
-        self.use_observed_lib_size = use_size_factor_key or use_observed_lib_size
+        self.use_observed_lib_size = True  # use_size_factor_key or use_observed_lib_size
         if not self.use_observed_lib_size:
             if library_log_means is None or library_log_means is None:
                 raise ValueError(
@@ -110,8 +105,6 @@ class LINEARVAE(BaseModuleClass):
 
         if self.dispersion == "gene":
             self.px_r = torch.nn.Parameter(torch.randn(n_input))
-        elif self.dispersion == "gene-batch":
-            self.px_r = torch.nn.Parameter(torch.randn(n_input, n_batch))
         elif self.dispersion == "gene-label":
             self.px_r = torch.nn.Parameter(torch.randn(n_input, n_labels))
         elif self.dispersion == "gene-cell":
@@ -163,7 +156,6 @@ class LINEARVAE(BaseModuleClass):
         self.decoder = LinearDecoderSCVI(
             n_latent,
             n_input,
-            n_cat_list=[n_batch],
             use_batch_norm=use_batch_norm,
             use_layer_norm=False,
             bias=bias,
@@ -177,20 +169,15 @@ class LINEARVAE(BaseModuleClass):
 
     def _get_inference_input(self, tensors):
         x = tensors[REGISTRY_KEYS.X_KEY]
-        batch_index = tensors[REGISTRY_KEYS.BATCH_KEY]
-        pert_index = tensors['PERT_KEY']
         d = tensors['COND_KEY']
         c = tensors['CONT_KEY']
         donor = tensors['DONOR_KEY']
-        cont_key = REGISTRY_KEYS.CONT_COVS_KEY
-        cont_covs = tensors[cont_key] if cont_key in tensors.keys() else None
-
-        cat_key = REGISTRY_KEYS.CAT_COVS_KEY
-        cat_covs = tensors[cat_key] if cat_key in tensors.keys() else None
 
         input_dict = dict(
-            x=x, batch_index=batch_index, pert_index=pert_index, d=d, c=c,
-            donor=donor, cont_covs=cont_covs, cat_covs=cat_covs
+            x=x,
+            d=d,
+            c=c,
+            donor=donor,
         )
         return input_dict
 
@@ -200,20 +187,6 @@ class LINEARVAE(BaseModuleClass):
         Zc = inference_outputs["Zc"]
         Zd = inference_outputs["Zd"]
         library = inference_outputs["library"]
-        batch_index = tensors[REGISTRY_KEYS.BATCH_KEY]
-
-        cont_key = REGISTRY_KEYS.CONT_COVS_KEY
-        cont_covs = tensors[cont_key] if cont_key in tensors.keys() else None
-
-        cat_key = REGISTRY_KEYS.CAT_COVS_KEY
-        cat_covs = tensors[cat_key] if cat_key in tensors.keys() else None
-
-        size_factor_key = REGISTRY_KEYS.SIZE_FACTOR_KEY
-        size_factor = (
-            torch.log(tensors[size_factor_key])
-            if size_factor_key in tensors.keys()
-            else None
-        )
 
         input_dict = dict(
             z=z,
@@ -221,10 +194,6 @@ class LINEARVAE(BaseModuleClass):
             Zc=Zc,
             Zd=Zd,
             library=library,
-            batch_index=batch_index,
-            cont_covs=cont_covs,
-            cat_covs=cat_covs,
-            size_factor=size_factor,
         )
         return input_dict
 
@@ -246,26 +215,23 @@ class LINEARVAE(BaseModuleClass):
         return local_library_log_means, local_library_log_vars
 
     @auto_move_data
-    def inference(self, x, d, c, donor, batch_index, cat_covs=None, n_samples=1):
+    def inference(self, x, d, c, donor,
+                  # batch_index, cat_covs=None,
+                  n_samples=1):
         """
         High level inference method.
 
         Runs the inference (encoder) model.
         """
         x_ = x
-        if self.use_observed_lib_size:
-            library = torch.log(x.sum(1)).unsqueeze(1)
+        library = torch.log(x.sum(1)).unsqueeze(1)
         if self.log_variational:
             x_ = torch.log(1 + x_)
         encoder_input = x_
-        if cat_covs is not None and self.encode_covariates:
-            categorical_input = torch.split(cat_covs, 1, dim=1)
-        else:
-            categorical_input = tuple()
 
-        qz_m, qz_v, z = self.z_encoder(encoder_input, batch_index, *categorical_input)
+        qz_m, qz_v, z = self.z_encoder(encoder_input)
         ql_m, ql_v, library_encoded = self.l_encoder(
-            encoder_input, batch_index, *categorical_input
+            encoder_input,
         )
 
         Zd = self.donor_encoder(donor)
@@ -278,9 +244,6 @@ class LINEARVAE(BaseModuleClass):
         alpha_ip_d = self.ard_d(d)
         alpha_ip_c = self.ard_c(c)
 
-        if not self.use_observed_lib_size:
-            library = library_encoded
-
         if n_samples > 1:
             qz_m = qz_m.unsqueeze(0).expand((n_samples, qz_m.size(0), qz_m.size(1)))
             qz_v = qz_v.unsqueeze(0).expand((n_samples, qz_v.size(0), qz_v.size(1)))
@@ -288,12 +251,9 @@ class LINEARVAE(BaseModuleClass):
             z = self.z_encoder.z_transformation(untran_z)
             ql_m = ql_m.unsqueeze(0).expand((n_samples, ql_m.size(0), ql_m.size(1)))
             ql_v = ql_v.unsqueeze(0).expand((n_samples, ql_v.size(0), ql_v.size(1)))
-            if self.use_observed_lib_size:
-                library = library.unsqueeze(0).expand(
-                    (n_samples, library.size(0), library.size(1))
-                )
-            else:
-                library = Normal(ql_m, ql_v.sqrt()).sample()
+            library = library.unsqueeze(0).expand(
+                (n_samples, library.size(0), library.size(1))
+            )
 
         Zp, attP = self.attention(z.unsqueeze(1), Zp_key, Zp)
         Zp = Zp.squeeze(1)
@@ -317,37 +277,31 @@ class LINEARVAE(BaseModuleClass):
         return outputs
 
     @auto_move_data
-    def generative(self, z, Zp, Zc, Zd, library, batch_index, cont_covs=None, cat_covs=None,
-                   size_factor=None, y=None, transform_batch=None):
+    def generative(self, z, Zp, Zc, Zd, library,
+                   # batch_index,
+                   # cont_covs=None,
+                   # cat_covs=None,
+                   # size_factor=None,
+                   y=None, transform_batch=None):
         """Runs the generative model."""
         # Likelihood distribution
         zA = z + Zp + Zc + Zd
         decoder_input = zA
 
-        if cat_covs is not None:
-            categorical_input = torch.split(cat_covs, 1, dim=1)
-        else:
-            categorical_input = tuple()
-
-        if transform_batch is not None:
-            batch_index = torch.ones_like(batch_index) * transform_batch
-
-        if not self.use_size_factor_key:
-            size_factor = library
+        # for scvi
+        categorical_input = tuple()
+        size_factor = library
 
         px_scale, px_r, px_rate, px_dropout = self.decoder(
             self.dispersion,
             decoder_input,
             size_factor,
-            batch_index,
             *categorical_input,
         )
         if self.dispersion == "gene-label":
             px_r = F.linear(
                 one_hot(y, self.n_labels), self.px_r
             )  # px_r gets transposed - last dimension is nb genes
-        elif self.dispersion == "gene-batch":
-            px_r = F.linear(one_hot(batch_index, self.n_batch), self.px_r)
         elif self.dispersion == "gene":
             px_r = self.px_r
 
@@ -365,14 +319,7 @@ class LINEARVAE(BaseModuleClass):
             px = Poisson(px_rate)
 
         # Priors
-        if self.use_observed_lib_size:
-            pl = None
-        else:
-            (
-                local_library_log_means,
-                local_library_log_vars,
-            ) = self._compute_local_library_params(batch_index)
-            pl = Normal(local_library_log_means, local_library_log_vars.sqrt())
+        pl = None
         pz = Normal(torch.zeros_like(zA), torch.ones_like(zA))
         return dict(
             zA=zA,
@@ -521,7 +468,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             n_latent: int = 10,
             n_layers: int = 1,
             dropout_rate: float = 0.1,
-            n_batch: int = 0,
+            # n_batch: int = 0,
             dispersion: Literal["gene", "gene-batch", "gene-label", "gene-cell"] = "gene",
             gene_likelihood: Literal["zinb", "nb", "poisson"] = "nb",
             latent_distribution: Literal["normal", "ln"] = "normal",
@@ -533,7 +480,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         super(CellCap, self).__init__(adata)
         self.module = LINEARVAE(
             n_input=self.summary_stats["n_vars"],
-            n_batch=self.summary_stats["n_batch"],
+            # n_batch=self.summary_stats["n_batch"],
             n_hidden=n_hidden,
             n_latent=n_latent,
             n_layers_encoder=n_layers,
@@ -826,17 +773,12 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def setup_anndata(
             cls,
             adata: AnnData,
-            labels_key: Optional[str] = None,
-            layer: Optional[str] = None,
-            batch_key: Optional[str] = None,
-            pert_key: Optional[str] = None,
-            cond_key: Optional[str] = None,
-            cont_key: Optional[str] = None,
-            target_key: Optional[str] = None,
-            donor_key: Optional[str] = None,
-            size_factor_key: Optional[str] = None,
-            categorical_covariate_keys: Optional[List[str]] = None,
-            continuous_covariate_keys: Optional[List[str]] = None,
+            layer: str,
+            pert_key: str,
+            cond_key: str,
+            cont_key: str,
+            target_key: str,
+            donor_key: str,
             **kwargs,
     ):
         """
@@ -854,18 +796,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         setup_method_args = cls._get_setup_method_args(**locals())
         anndata_fields = [
             LayerField(REGISTRY_KEYS.X_KEY, layer, is_count_data=True),
-            CategoricalObsField(REGISTRY_KEYS.BATCH_KEY, batch_key),
-            CategoricalObsField(REGISTRY_KEYS.LABELS_KEY, labels_key),
             CategoricalObsField(registry_key="PERT_KEY", obs_key=pert_key),
-            NumericalObsField(
-                REGISTRY_KEYS.SIZE_FACTOR_KEY, size_factor_key, required=False
-            ),
-            CategoricalJointObsField(
-                REGISTRY_KEYS.CAT_COVS_KEY, categorical_covariate_keys
-            ),
-            NumericalJointObsField(
-                REGISTRY_KEYS.CONT_COVS_KEY, continuous_covariate_keys
-            ),
             ObsmField(
                 registry_key="COND_KEY", obsm_key=cond_key
             ),

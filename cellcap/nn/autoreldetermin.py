@@ -24,7 +24,6 @@ class ARDregularizer(torch.nn.Module):
         self.drug_dim = drug_dim
         self.prog_dim = prog_dim
         self.ard_dist = ARD_dist(drug_dim=self.drug_dim, prog_dim=self.prog_dim)
-        self.apply(init_weights)
 
     def forward(self, x):
         log_alpha_ip = self.ard_dist(x)
