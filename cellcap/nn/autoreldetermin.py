@@ -1,7 +1,5 @@
 ##ARD regularization
-
 import torch
-from .base import init_weights
 
 
 class ARD_dist(torch.nn.Module):
@@ -9,7 +7,7 @@ class ARD_dist(torch.nn.Module):
         super(ARD_dist, self).__init__()
         self.drug_dim = drug_dim
         self.n_prog = prog_dim
-        self.weight = torch.nn.Parameter(torch.zeros(self.drug_dim, self.n_prog) + 0.5)
+        self.weight = torch.nn.Parameter(torch.ones(self.drug_dim, self.n_prog))
 
     def forward(self, x):
         y = torch.matmul(x, self.weight)
@@ -26,7 +24,6 @@ class ARDregularizer(torch.nn.Module):
         self.drug_dim = drug_dim
         self.prog_dim = prog_dim
         self.ard_dist = ARD_dist(drug_dim=self.drug_dim, prog_dim=self.prog_dim)
-        self.apply(init_weights)
 
     def forward(self, x):
         log_alpha_ip = self.ard_dist(x)
