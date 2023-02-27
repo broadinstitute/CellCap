@@ -3,7 +3,6 @@
 import pytest
 import torch
 import anndata
-import scanpy as sc
 import os
 from ..utils import generate_simulated_dataset
 
@@ -21,5 +20,5 @@ def simulated_dataset() -> anndata.AnnData:
 
 @pytest.fixture(scope='session')
 def small_real_dataset() -> anndata.AnnData:
-    adata = sc.read_h5ad(test_data_path)
+    adata = anndata.read_h5ad(test_data_path)
     return adata
