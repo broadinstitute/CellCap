@@ -215,9 +215,7 @@ class LINEARVAE(BaseModuleClass):
         return local_library_log_means, local_library_log_vars
 
     @auto_move_data
-    def inference(self, x, d, c, donor,
-                  # batch_index, cat_covs=None,
-                  n_samples=1):
+    def inference(self, x, d, c, donor, n_samples=1):
         """
         High level inference method.
 
@@ -277,12 +275,7 @@ class LINEARVAE(BaseModuleClass):
         return outputs
 
     @auto_move_data
-    def generative(self, z, Zp, Zc, Zd, library,
-                   # batch_index,
-                   # cont_covs=None,
-                   # cat_covs=None,
-                   # size_factor=None,
-                   y=None, transform_batch=None):
+    def generative(self, z, Zp, Zc, Zd, library, y=None, transform_batch=None):
         """Runs the generative model."""
         # Likelihood distribution
         zA = z + Zp + Zc + Zd
@@ -468,8 +461,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             n_latent: int = 10,
             n_layers: int = 1,
             dropout_rate: float = 0.1,
-            # n_batch: int = 0,
-            dispersion: Literal["gene", "gene-batch", "gene-label", "gene-cell"] = "gene",
+            dispersion: Literal["gene", "gene-label", "gene-cell"] = "gene",
             gene_likelihood: Literal["zinb", "nb", "poisson"] = "nb",
             latent_distribution: Literal["normal", "ln"] = "normal",
             log_variational: bool = True,
@@ -480,7 +472,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         super(CellCap, self).__init__(adata)
         self.module = LINEARVAE(
             n_input=self.summary_stats["n_vars"],
-            # n_batch=self.summary_stats["n_batch"],
             n_hidden=n_hidden,
             n_latent=n_latent,
             n_layers_encoder=n_layers,
