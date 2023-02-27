@@ -128,7 +128,6 @@ class FactorTrainingPlanA(TrainingPlan):
                 loss += tc_loss * kappa
 
             self.log("train_loss", loss, on_epoch=True)
-            print(self.elbo_train)
             self.compute_and_log_metrics(scvi_loss, self.train_metrics, mode="train")
             return loss
 
