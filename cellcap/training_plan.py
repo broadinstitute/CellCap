@@ -1,12 +1,12 @@
 """Training plan with arbitrary logging"""
 import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.distributions import Normal
 
 from scvi._compat import Literal
 from scvi.train._trainingplans import TrainingPlan
 from scvi.module.base._base_module import BaseModuleClass
 
-from easydl import aToBSheduler
 from typing import Optional, Union
 
 from .utils import _METRICS_TO_LOG
@@ -79,7 +79,7 @@ class FactorTrainingPlanA(TrainingPlan):
             lr_min=lr_min,
         )
         if discriminator is True:
-            self.n_output_classifier = self.module.n_batch
+            # self.n_output_classifier = self.module.n_batch
             self.discriminator = AdvNet(
                 in_feature=self.module.n_latent,
                 hidden_size=128,
@@ -128,7 +128,7 @@ class FactorTrainingPlanA(TrainingPlan):
                 loss += tc_loss * kappa
 
             self.log("train_loss", loss, on_epoch=True)
-            self.compute_and_log_metrics(scvi_loss, self.elbo_train)
+            self.compute_and_log_metrics(scvi_loss, self.train_metrics, mode="train")
             return loss
 
         if optimizer_idx == 1:
@@ -345,33 +345,6 @@ class FactorTrainingPlanB(TrainingPlan):
                 return opts
 
         return config1
-
-# TODO: maybe not worth it to figure out this commented-out approach
-# def training_epoch_end(cls, outputs):
-#     cls.training_epoch_end(outputs=outputs)
-#     for name, val in _METRICS_TO_LOG:
-#         cls.log(name, val)
-#
-#
-# def logging_wrapper(superclass):
-#     """
-#     Programmatically create subclasses which overwrite the
-#     training_epoch_end() method.
-#
-#     Examples
-#     --------
-#
-#     >>> training_plan = LoggedTrainingPlan(self.module, **plan_kwargs)
-#     would be the same as
-#     >>> training_plan = logging_wrapper(TrainingPlan)(self.module, **plan_kwargs)
-#     except now you can also do
-#     >>> training_plan = logging_wrapper(MyTrainingPlan)(self.module, **plan_kwargs)
-#     """
-#
-#     _LoggedClass = type(f'Logged{superclass}', superclass, {})
-#     _LoggedClass.training_epoch_end = classmethod(training_epoch_end)
-#
-#     return _LoggedClass
 
 
 class LoggedTrainingPlan(TrainingPlan):

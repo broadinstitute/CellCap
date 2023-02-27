@@ -1,6 +1,7 @@
 """Utility functions"""
 
 import torch
+import torch.nn.functional as F
 import anndata
 import numpy as np
 
