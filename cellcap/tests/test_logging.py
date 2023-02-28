@@ -1,6 +1,6 @@
 """Test custom logging functions: LoggedTrainingPlan and log_metric()"""
 
-import pytest
+
 import torch
 import torch.nn.functional as F
 from torch.distributions import Normal

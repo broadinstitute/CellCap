@@ -1,4 +1,4 @@
-##ARD regularization
+# ARD regularization
 import torch
 
 

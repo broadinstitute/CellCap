@@ -27,15 +27,15 @@ from scvi.model.base import (
 from scvi.data import AnnDataManager
 from scvi.utils import setup_anndata_dsp
 from scvi.data.fields import (
-    CategoricalJointObsField,
+    # CategoricalJointObsField,
     CategoricalObsField,
     LayerField,
-    NumericalJointObsField,
-    NumericalObsField,
+    # NumericalJointObsField,
+    # NumericalObsField,
     ObsmField,
 )
 
-from typing import Callable, Iterable, Optional, List, Union, Tuple, Dict
+from typing import Callable, Optional, Union  # , Iterable, List, Tuple, Dict
 
 from .nn.drugencoder import DrugEncoder
 from .nn.donorencoder import DonorEncoder
@@ -50,7 +50,7 @@ torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
 
 
-##VAE base
+# VAE base
 class LINEARVAE(BaseModuleClass):
     def __init__(
         self,
@@ -342,7 +342,7 @@ class LINEARVAE(BaseModuleClass):
         kl_weight: float = 1.0,
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
-        l = tensors["TARGET_KEY"]
+        label = tensors["TARGET_KEY"]
 
         qz_m = inference_outputs["qz_m"]
         qz_v = inference_outputs["qz_v"]
@@ -370,7 +370,9 @@ class LINEARVAE(BaseModuleClass):
         kl_local_no_warmup = kl_divergence_l
         weighted_kl_local = kl_weight * kl_local_for_warmup + kl_local_no_warmup
 
-        advers_loss = torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], l)
+        advers_loss = torch.nn.BCELoss(reduction="sum")(
+            inference_outputs["prob"], label
+        )
         ent_penalty = entropy(generative_outputs["zA"])
 
         loss = torch.mean(
@@ -467,7 +469,7 @@ class LINEARVAE(BaseModuleClass):
         return log_lkl
 
 
-##CellCap
+# CellCap
 class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def __init__(
         self,
