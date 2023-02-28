@@ -6,7 +6,7 @@
 from ..module import CellCap
 
 
-def test_mymodel(small_real_dataset):
+def test_basic_functionality(small_real_dataset):
     n_latent = 4
     adata = small_real_dataset
     print(adata)
