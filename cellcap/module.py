@@ -17,20 +17,25 @@ from scvi.train._callbacks import SaveBestState
 from scvi.nn import Encoder, LinearDecoderSCVI, one_hot
 from scvi.module.base import BaseModuleClass, LossRecorder, auto_move_data
 from scvi.distributions import ZeroInflatedNegativeBinomial, NegativeBinomial
-from scvi.model.base import UnsupervisedTrainingMixin, BaseModelClass, RNASeqMixin, VAEMixin
+from scvi.model.base import (
+    UnsupervisedTrainingMixin,
+    BaseModelClass,
+    RNASeqMixin,
+    VAEMixin,
+)
 
 from scvi.data import AnnDataManager
 from scvi.utils import setup_anndata_dsp
 from scvi.data.fields import (
-    CategoricalJointObsField,
+    # CategoricalJointObsField,
     CategoricalObsField,
     LayerField,
-    NumericalJointObsField,
-    NumericalObsField,
+    # NumericalJointObsField,
+    # NumericalObsField,
     ObsmField,
 )
 
-from typing import Callable, Iterable, Optional, List, Union, Tuple, Dict
+from typing import Callable, Optional, Union  # , Iterable, List, Tuple, Dict
 
 from .nn.drugencoder import DrugEncoder
 from .nn.donorencoder import DonorEncoder
@@ -44,35 +49,35 @@ from .training_plan import FactorTrainingPlanA
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
 
-##VAE base
-class LINEARVAE(BaseModuleClass):
 
+# VAE base
+class LINEARVAE(BaseModuleClass):
     def __init__(
-            self,
-            n_input: int,
-            n_labels: int = 0,
-            n_hidden: int = 128,
-            n_latent: int = 10,
-            n_layers: int = 1,
-            n_drug: int = 3,
-            n_target: int = 5,
-            n_control: int = 3,
-            n_prog: int = 5,
-            n_donor: int = 5,
-            n_layers_encoder: int = 1,
-            dropout_rate: float = 0.1,
-            dispersion: str = "gene",
-            log_variational: bool = True,
-            gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb",
-            latent_distribution: str = "normal",
-            encode_covariates: bool = False,
-            deeply_inject_covariates: bool = True,
-            use_batch_norm: Literal["encoder", "decoder", "none", "both"] = "both",
-            use_size_factor_key: bool = False,
-            library_log_means: Optional[np.ndarray] = None,
-            library_log_vars: Optional[np.ndarray] = None,
-            var_activation: Optional[Callable] = None,
-            bias: bool = False,
+        self,
+        n_input: int,
+        n_labels: int = 0,
+        n_hidden: int = 128,
+        n_latent: int = 10,
+        n_layers: int = 1,
+        n_drug: int = 3,
+        n_target: int = 5,
+        n_control: int = 3,
+        n_prog: int = 5,
+        n_donor: int = 5,
+        n_layers_encoder: int = 1,
+        dropout_rate: float = 0.1,
+        dispersion: str = "gene",
+        log_variational: bool = True,
+        gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb",
+        latent_distribution: str = "normal",
+        encode_covariates: bool = False,
+        deeply_inject_covariates: bool = True,
+        use_batch_norm: Literal["encoder", "decoder", "none", "both"] = "both",
+        use_size_factor_key: bool = False,
+        library_log_means: Optional[np.ndarray] = None,
+        library_log_vars: Optional[np.ndarray] = None,
+        var_activation: Optional[Callable] = None,
+        bias: bool = False,
     ):
         super().__init__()
         self.dispersion = dispersion
@@ -88,7 +93,9 @@ class LINEARVAE(BaseModuleClass):
         self.n_donor = n_donor
         self.n_target = n_target
         self.use_size_factor_key = use_size_factor_key
-        self.use_observed_lib_size = True  # use_size_factor_key or use_observed_lib_size
+        self.use_observed_lib_size = (
+            True  # use_size_factor_key or use_observed_lib_size
+        )
         if not self.use_observed_lib_size:
             if library_log_means is None or library_log_means is None:
                 raise ValueError(
@@ -140,8 +147,8 @@ class LINEARVAE(BaseModuleClass):
             use_layer_norm=False,
         )
 
-        self.d_encoder = DrugEncoder(n_latent, n_drug, n_prog ,key=False)
-        self.c_encoder = DrugEncoder(n_latent, n_control, n_prog ,key=False)
+        self.d_encoder = DrugEncoder(n_latent, n_drug, n_prog, key=False)
+        self.c_encoder = DrugEncoder(n_latent, n_control, n_prog, key=False)
         self.d_encoder_key = DrugEncoder(n_latent, n_drug, n_prog, key=True)
         self.c_encoder_key = DrugEncoder(n_latent, n_control, n_prog, key=True)
 
@@ -169,9 +176,9 @@ class LINEARVAE(BaseModuleClass):
 
     def _get_inference_input(self, tensors):
         x = tensors[REGISTRY_KEYS.X_KEY]
-        d = tensors['COND_KEY']
-        c = tensors['CONT_KEY']
-        donor = tensors['DONOR_KEY']
+        d = tensors["COND_KEY"]
+        c = tensors["CONT_KEY"]
+        donor = tensors["DONOR_KEY"]
 
         input_dict = dict(
             x=x,
@@ -267,11 +274,22 @@ class LINEARVAE(BaseModuleClass):
         Zc = F.normalize(Zc, p=2, dim=1)
         Zd = F.normalize(Zd, p=2, dim=1)
 
-        outputs = dict(z=z, qz_m=qz_m, qz_v=qz_v, ql_m=ql_m, ql_v=ql_v,
-                       prob=prob, Zp=Zp, Zc=Zc, Zd=Zd, library=library,
-                       attP=attP, attC=attC,
-                       alpha_ip_d=alpha_ip_d, alpha_ip_c=alpha_ip_c,
-                       )
+        outputs = dict(
+            z=z,
+            qz_m=qz_m,
+            qz_v=qz_v,
+            ql_m=ql_m,
+            ql_v=ql_v,
+            prob=prob,
+            Zp=Zp,
+            Zc=Zc,
+            Zd=Zd,
+            library=library,
+            attP=attP,
+            attC=attC,
+            alpha_ip_d=alpha_ip_d,
+            alpha_ip_c=alpha_ip_c,
+        )
         return outputs
 
     @auto_move_data
@@ -314,22 +332,17 @@ class LINEARVAE(BaseModuleClass):
         # Priors
         pl = None
         pz = Normal(torch.zeros_like(zA), torch.ones_like(zA))
-        return dict(
-            zA=zA,
-            px=px,
-            pl=pl,
-            pz=pz
-        )
+        return dict(zA=zA, px=px, pl=pl, pz=pz)
 
     def loss(
-            self,
-            tensors,
-            inference_outputs,
-            generative_outputs,
-            kl_weight: float = 1.0,
+        self,
+        tensors,
+        inference_outputs,
+        generative_outputs,
+        kl_weight: float = 1.0,
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
-        l = tensors["TARGET_KEY"]
+        label = tensors["TARGET_KEY"]
 
         qz_m = inference_outputs["qz_m"]
         qz_v = inference_outputs["qz_v"]
@@ -357,7 +370,9 @@ class LINEARVAE(BaseModuleClass):
         kl_local_no_warmup = kl_divergence_l
         weighted_kl_local = kl_weight * kl_local_for_warmup + kl_local_no_warmup
 
-        advers_loss = torch.nn.BCELoss(reduction='sum')(inference_outputs["prob"], l)
+        advers_loss = torch.nn.BCELoss(reduction="sum")(
+            inference_outputs["prob"], label
+        )
         ent_penalty = entropy(generative_outputs["zA"])
 
         loss = torch.mean(
@@ -373,14 +388,16 @@ class LINEARVAE(BaseModuleClass):
 
     @torch.no_grad()
     def sample(
-            self,
-            tensors,
-            n_samples=1,
-            library_size=1,
+        self,
+        tensors,
+        n_samples=1,
+        library_size=1,
     ) -> np.ndarray:
-
         inference_kwargs = dict(n_samples=n_samples)
-        _, generative_outputs, = self.forward(
+        (
+            _,
+            generative_outputs,
+        ) = self.forward(
             tensors,
             inference_kwargs=inference_kwargs,
             compute_loss=False,
@@ -451,23 +468,23 @@ class LINEARVAE(BaseModuleClass):
         log_lkl = torch.sum(batch_log_lkl).item()
         return log_lkl
 
-##CellCap
-class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
+# CellCap
+class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def __init__(
-            self,
-            adata: AnnData,
-            n_hidden: int = 128,
-            n_latent: int = 10,
-            n_layers: int = 1,
-            dropout_rate: float = 0.1,
-            dispersion: Literal["gene", "gene-label", "gene-cell"] = "gene",
-            gene_likelihood: Literal["zinb", "nb", "poisson"] = "nb",
-            latent_distribution: Literal["normal", "ln"] = "normal",
-            log_variational: bool = True,
-            use_batch_norm: bool = True,
-            bias: bool = False,
-            **model_kwargs,
+        self,
+        adata: AnnData,
+        n_hidden: int = 128,
+        n_latent: int = 10,
+        n_layers: int = 1,
+        dropout_rate: float = 0.1,
+        dispersion: Literal["gene", "gene-label", "gene-cell"] = "gene",
+        gene_likelihood: Literal["zinb", "nb", "poisson"] = "nb",
+        latent_distribution: Literal["normal", "ln"] = "normal",
+        log_variational: bool = True,
+        use_batch_norm: bool = True,
+        bias: bool = False,
+        **model_kwargs,
     ):
         super(CellCap, self).__init__(adata)
         self.module = LINEARVAE(
@@ -500,7 +517,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     @torch.no_grad()
     def get_loadings(self) -> np.ndarray:
-
         # This is BW, where B is diag(b) batch norm, W is weight matrix
         if self.use_batch_norm is True:
             w = self.module.decoder.factor_regressor.fc_layers[0][0].weight
@@ -519,7 +535,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return loadings
 
     def get_pert_loadings(self) -> pd.DataFrame:  # TO DO
-
         weights = []
         for p in self.module.d_encoder.drug_weights.parameters():
             weights.append(p)
@@ -530,7 +545,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return loadings
 
     def get_ard_loadings(self) -> pd.DataFrame:  # TO DO
-
         weights = []
         for p in self.module.ard_d.ard_dist.parameters():
             weights.append(p)
@@ -540,7 +554,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return loadings
 
     def get_donor_loadings(self) -> pd.DataFrame:  # TO DO
-
         weights = []
         for p in self.module.donor_encoder.drug_weights.parameters():
             weights.append(p)
@@ -553,11 +566,10 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     @torch.no_grad()
     def get_latent_embedding(
-            self,
-            adata: Optional[AnnData] = None,
-            batch_size: Optional[int] = None,
+        self,
+        adata: Optional[AnnData] = None,
+        batch_size: Optional[int] = None,
     ) -> np.ndarray:
-
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
@@ -575,11 +587,10 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     @torch.no_grad()
     def get_pert_embedding(
-            self,
-            adata: Optional[AnnData] = None,
-            batch_size: Optional[int] = None,
+        self,
+        adata: Optional[AnnData] = None,
+        batch_size: Optional[int] = None,
     ) -> np.ndarray:
-
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
@@ -602,18 +613,15 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     @torch.no_grad()
     def get_control_embedding(
-            self,
-            adata: Optional[AnnData] = None,
-            batch_size: Optional[int] = None,
+        self,
+        adata: Optional[AnnData] = None,
+        batch_size: Optional[int] = None,
     ) -> np.ndarray:
-
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
         adata = self._validate_anndata(adata)
-        post = self._make_data_loader(
-            adata=adata, batch_size=batch_size
-        )
+        post = self._make_data_loader(adata=adata, batch_size=batch_size)
         embedding = []
         atts = []
         for tensors in post:
@@ -629,11 +637,10 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     @torch.no_grad()
     def get_donor_embedding(
-            self,
-            adata: Optional[AnnData] = None,
-            batch_size: Optional[int] = None,
+        self,
+        adata: Optional[AnnData] = None,
+        batch_size: Optional[int] = None,
     ) -> np.ndarray:
-
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
@@ -651,11 +658,10 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     @torch.no_grad()
     def get_embedding(
-            self,
-            adata: Optional[AnnData] = None,
-            batch_size: Optional[int] = None,
+        self,
+        adata: Optional[AnnData] = None,
+        batch_size: Optional[int] = None,
     ) -> np.ndarray:
-
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
@@ -674,46 +680,43 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     @torch.no_grad()
     def predict(
-            self,
-            adata: Optional[AnnData] = None,
-            batch_size: Optional[int] = None,
+        self,
+        adata: Optional[AnnData] = None,
+        batch_size: Optional[int] = None,
     ) -> np.ndarray:
-
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
         adata = self._validate_anndata(adata)
-        post = self._make_data_loader(
-            adata=adata, batch_size=batch_size
-        )
+        post = self._make_data_loader(adata=adata, batch_size=batch_size)
         preditions = []
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
             generative_inputs = self.module._get_generative_input(tensors, outputs)
             outputs = self.module.generative(**generative_inputs)
-            out = outputs['px'].sample()
+            out = outputs["px"].sample()
             preditions += [out.cpu()]
         return np.array(torch.cat(preditions))
 
     # TO DO
     def train(
-            self,
-            max_epochs: int = 500,
-            lr: float = 1e-4,
-            use_gpu: Optional[Union[str, int, bool]] = None,
-            train_size: float = 0.9,
-            validation_size: Optional[float] = None,
-            batch_size: int = 128,
-            weight_decay: float = 1e-3,
-            eps: float = 1e-08,
-            early_stopping: bool = True,
-            save_best: bool = True,
-            check_val_every_n_epoch: Optional[int] = None,
-            n_steps_kl_warmup: Optional[int] = None,
-            n_epochs_kl_warmup: Optional[int] = 50,
-            plan_kwargs: Optional[dict] = None,
-            **kwargs,
+        self,
+        max_epochs: int = 500,
+        lr: float = 1e-4,
+        use_gpu: Optional[Union[str, int, bool]] = None,
+        train_size: float = 0.9,
+        validation_size: Optional[float] = None,
+        batch_size: int = 128,
+        weight_decay: float = 1e-3,
+        eps: float = 1e-08,
+        early_stopping: bool = True,
+        save_best: bool = True,
+        check_val_every_n_epoch: Optional[int] = None,
+        n_steps_kl_warmup: Optional[int] = None,
+        n_epochs_kl_warmup: Optional[int] = 50,
+        plan_kwargs: Optional[dict] = None,
+        **kwargs,
     ):
         update_dict = dict(
             lr=lr,
@@ -743,7 +746,9 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             use_gpu=use_gpu,
         )
 
-        training_plan = FactorTrainingPlanA(self.module, discriminator=True, scale_tc_loss=1.0, **plan_kwargs)
+        training_plan = FactorTrainingPlanA(
+            self.module, discriminator=True, scale_tc_loss=1.0, **plan_kwargs
+        )
 
         runner = TrainRunner(
             self,
@@ -762,15 +767,15 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     @classmethod
     @setup_anndata_dsp.dedent
     def setup_anndata(
-            cls,
-            adata: AnnData,
-            layer: str,
-            pert_key: str,
-            cond_key: str,
-            cont_key: str,
-            target_key: str,
-            donor_key: str,
-            **kwargs,
+        cls,
+        adata: AnnData,
+        layer: str,
+        pert_key: str,
+        cond_key: str,
+        cont_key: str,
+        target_key: str,
+        donor_key: str,
+        **kwargs,
     ):
         """
         %(summary)s.
@@ -788,18 +793,10 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         anndata_fields = [
             LayerField(REGISTRY_KEYS.X_KEY, layer, is_count_data=True),
             CategoricalObsField(registry_key="PERT_KEY", obs_key=pert_key),
-            ObsmField(
-                registry_key="COND_KEY", obsm_key=cond_key
-            ),
-            ObsmField(
-                registry_key="CONT_KEY", obsm_key=cont_key
-            ),
-            ObsmField(
-                registry_key="TARGET_KEY", obsm_key=target_key
-            ),
-            ObsmField(
-                registry_key="DONOR_KEY", obsm_key=donor_key
-            ),
+            ObsmField(registry_key="COND_KEY", obsm_key=cond_key),
+            ObsmField(registry_key="CONT_KEY", obsm_key=cont_key),
+            ObsmField(registry_key="TARGET_KEY", obsm_key=target_key),
+            ObsmField(registry_key="DONOR_KEY", obsm_key=donor_key),
         ]
         adata_manager = AnnDataManager(
             fields=anndata_fields, setup_method_args=setup_method_args
