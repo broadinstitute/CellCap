@@ -25,7 +25,7 @@ from scvi.nn import DecoderSCVI, Encoder, one_hot
 from scvi.train import TrainRunner
 from scvi.dataloaders import DataSplitter
 
-from ..utils import log_metric
+from ..metrics import log_metric
 from ..training_plan import LoggedTrainingPlan
 
 from typing import List, Optional, Union

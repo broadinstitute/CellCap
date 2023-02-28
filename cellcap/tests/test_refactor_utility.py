@@ -26,7 +26,7 @@ import torch
 import os
 import shutil
 from .test_integration import basic_run
-from ..module import CellCap
+from ..scvi_module import CellCap
 
 CREATE_NEW_REFACTORING_BENCHMARK = False
 RUN_REFACTORING_TESTS_AGAINST_BENCHMARK = True
@@ -57,8 +57,9 @@ def test_compare_against_refactoring_benchmark(small_real_dataset):
         trained_model = train_model(small_real_dataset)
         trained_model.save(REFACTORED_MODEL_PATH)
         adata, _, _ = small_real_dataset
-        assert models_equal(REFACTORED_MODEL_PATH, BENCHMARK_MODEL_PATH, adata), \
-            "Refactoring has changed the output"
+        assert models_equal(
+            REFACTORED_MODEL_PATH, BENCHMARK_MODEL_PATH, adata
+        ), "Refactoring has changed the output"
 
 
 def train_model(small_real_dataset):

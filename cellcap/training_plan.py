@@ -1,4 +1,5 @@
-"""Training plan with arbitrary logging"""
+"""Various training plans and a logging mixin for training plans"""
+
 import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.distributions import Normal
@@ -9,21 +10,9 @@ from scvi.module.base._base_module import BaseModuleClass
 
 from typing import Optional, Union
 
-from .utils import _METRICS_TO_LOG
+from .metrics import _METRICS_TO_LOG
 from .nn.advclassifier import AdvNet
-
-
-def permute_dims(z):
-    assert z.dim() == 2
-
-    B, _ = z.size()
-    perm_z = []
-    for z_j in z.split(1, 1):
-        perm = torch.randperm(B).to(z.device)
-        perm_z_j = z_j[perm]
-        perm_z.append(perm_z_j)
-
-    return torch.cat(perm_z, 1)
+from .utils import permute_dims
 
 
 def _compute_kl_weight(
@@ -158,7 +147,7 @@ class FactorTrainingPlanA(TrainingPlan):
     def configure_optimizers(self):
         Ma = (
             list(self.module.z_encoder.parameters())
-            + list(self.module.l_encoder.parameters())
+            # + list(self.module.l_encoder.parameters())
             + list(self.module.decoder.parameters())
         )
         Mb = (
@@ -296,7 +285,7 @@ class FactorTrainingPlanB(TrainingPlan):
                 loss += tc_loss * kappa
 
             self.log("train_loss", loss, on_epoch=True)
-            self.compute_and_log_metrics(scvi_loss, self.elbo_train)
+            self.compute_and_log_metrics(scvi_loss, self.train_metrics, mode="train")
             return loss
 
         if optimizer_idx == 1:

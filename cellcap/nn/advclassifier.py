@@ -1,53 +1,8 @@
+"""Classifier with gradient reversal"""
+
 import torch
-
-
-def init_weights(m):
-    classname = m.__class__.__name__
-    if classname.find("BatchNorm") != -1:
-        torch.nn.init.normal_(m.weight, 1.0, 0.02)
-        torch.nn.init.zeros_(m.bias)
-    elif classname.find("Linear") != -1:
-        torch.nn.init.xavier_normal_(m.weight)
-        torch.nn.init.zeros_(m.bias)
-
-
-def permute_dims(z):
-    assert z.dim() == 2
-
-    B, _ = z.size()
-    perm_z = []
-    for z_j in z.split(1, 1):
-        perm = torch.randperm(B).to(z.device)
-        perm_z_j = z_j[perm]
-        perm_z.append(perm_z_j)
-
-    return torch.cat(perm_z, 1)
-
-
-# Gradiant reverse
-class GradientReverseLayer(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, input_, alpha_):
-        ctx.save_for_backward(input_, alpha_)
-        output = input_
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        grad_input = None
-        _, alpha_ = ctx.saved_tensors
-        if ctx.needs_input_grad[0]:
-            grad_input = -grad_output * alpha_
-        return grad_input, None
-
-
-class GradientReverseModule(torch.nn.Module):
-    def __init__(self, alpha=1.0, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._alpha = torch.tensor(alpha, requires_grad=False)
-
-    def forward(self, input_):
-        return GradientReverseLayer.apply(input_, self._alpha)
+from .gradient_reversal import GradientReverseModule
+from ..utils import init_weights
 
 
 class AdvNet(torch.nn.Module):

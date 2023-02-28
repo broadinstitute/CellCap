@@ -5,7 +5,7 @@
 
 import pytest
 import torch
-from ..module import CellCap
+from ..scvi_module import CellCap
 
 
 USE_CUDA = torch.cuda.is_available()
@@ -37,7 +37,9 @@ def test_basic_functionality(small_real_dataset, n_latent, n_epochs, cuda):
     )
 
 
-def basic_run(adata, setup_adata_kwargs, adata_kwargs, n_latent, n_epochs, cuda, verbose=False):
+def basic_run(
+    adata, setup_adata_kwargs, adata_kwargs, n_latent, n_epochs, cuda, verbose=False
+):
     """Basic run through of user-facing functionality"""
 
     CellCap.setup_anndata(
