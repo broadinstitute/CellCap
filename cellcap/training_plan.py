@@ -12,6 +12,7 @@ from typing import Optional, Union
 from .utils import _METRICS_TO_LOG
 from .nn.advclassifier import AdvNet
 
+
 def permute_dims(z):
     assert z.dim() == 2
 
@@ -24,12 +25,13 @@ def permute_dims(z):
 
     return torch.cat(perm_z, 1)
 
+
 def _compute_kl_weight(
-        epoch: int,
-        step: int,
-        n_epochs_kl_warmup: Optional[int],
-        n_steps_kl_warmup: Optional[int],
-        min_weight: Optional[float] = None,
+    epoch: int,
+    step: int,
+    n_epochs_kl_warmup: Optional[int],
+    n_steps_kl_warmup: Optional[int],
+    min_weight: Optional[float] = None,
 ) -> float:
     epoch_criterion = n_epochs_kl_warmup is not None
     step_criterion = n_steps_kl_warmup is not None
@@ -45,25 +47,24 @@ def _compute_kl_weight(
 
 
 class FactorTrainingPlanA(TrainingPlan):
-
     def __init__(
-            self,
-            module: BaseModuleClass,
-            lr=1e-3,
-            weight_decay=1e-6,
-            n_steps_kl_warmup: Union[int, None] = None,
-            n_epochs_kl_warmup: Union[int, None] = 400,
-            reduce_lr_on_plateau: bool = False,
-            lr_factor: float = 0.6,
-            lr_patience: int = 30,
-            lr_threshold: float = 0.0,
-            lr_scheduler_metric: Literal[
-                "elbo_validation", "reconstruction_loss_validation", "kl_local_validation"
-            ] = "elbo_validation",
-            lr_min: float = 0,
-            discriminator: Union[bool, AdvNet] = False,
-            scale_tc_loss: Union[float, Literal["auto"]] = "auto",
-            **loss_kwargs,
+        self,
+        module: BaseModuleClass,
+        lr=1e-3,
+        weight_decay=1e-6,
+        n_steps_kl_warmup: Union[int, None] = None,
+        n_epochs_kl_warmup: Union[int, None] = 400,
+        reduce_lr_on_plateau: bool = False,
+        lr_factor: float = 0.6,
+        lr_patience: int = 30,
+        lr_threshold: float = 0.0,
+        lr_scheduler_metric: Literal[
+            "elbo_validation", "reconstruction_loss_validation", "kl_local_validation"
+        ] = "elbo_validation",
+        lr_min: float = 0,
+        discriminator: Union[bool, AdvNet] = False,
+        scale_tc_loss: Union[float, Literal["auto"]] = "auto",
+        **loss_kwargs,
     ):
         super().__init__(
             module=module,
@@ -81,9 +82,7 @@ class FactorTrainingPlanA(TrainingPlan):
         if discriminator is True:
             # self.n_output_classifier = self.module.n_batch
             self.discriminator = AdvNet(
-                in_feature=self.module.n_latent,
-                hidden_size=128,
-                out_dim=2
+                in_feature=self.module.n_latent, hidden_size=128, out_dim=2
             )
         else:
             self.discriminator = discriminator
@@ -95,27 +94,25 @@ class FactorTrainingPlanA(TrainingPlan):
         return tc_loss
 
     def discriminator_loss(self, z):
-
         Dzb = self.discriminator.forward(z, if_activation=False, reverse=False)
         zperm = permute_dims(z)
-        Dperm = self.discriminator.forward(zperm.detach(), if_activation=False, reverse=False)
+        Dperm = self.discriminator.forward(
+            zperm.detach(), if_activation=False, reverse=False
+        )
 
         ones = torch.ones(z.shape[0], dtype=torch.long, device=z.device)
         zeros = torch.zeros(z.shape[0], dtype=torch.long, device=z.device)
-        d_loss1 = torch.nn.CrossEntropyLoss(reduction='mean')(Dzb, zeros)
-        d_loss2 = torch.nn.CrossEntropyLoss(reduction='mean')(Dperm, ones)
+        d_loss1 = torch.nn.CrossEntropyLoss(reduction="mean")(Dzb, zeros)
+        d_loss2 = torch.nn.CrossEntropyLoss(reduction="mean")(Dperm, ones)
         loss = (d_loss1 + d_loss2) * 0.5
 
         return loss
 
     def training_step(self, batch, batch_idx, optimizer_idx=0):
         kappa = (
-            1 - self.kl_weight
-            if self.scale_tc_loss == "auto"
-            else self.scale_tc_loss
+            1 - self.kl_weight if self.scale_tc_loss == "auto" else self.scale_tc_loss
         )
         if optimizer_idx == 0:
-
             loss_kwargs = dict(kl_weight=self.kl_weight)
             inference_outputs, _, scvi_loss = self.forward(
                 batch, loss_kwargs=loss_kwargs
@@ -144,19 +141,31 @@ class FactorTrainingPlanA(TrainingPlan):
             inference_inputs = self.module._get_inference_input(batch)
             outputs = self.module.inference(**inference_inputs)
 
-            ard_reg_d = Normal(loc=0., scale=1. / outputs["alpha_ip_d"]).log_prob(outputs["attP"]).mean()
-            ard_reg_c = Normal(loc=0., scale=1. / outputs["alpha_ip_c"]).log_prob(outputs["attC"]).mean()
+            ard_reg_d = (
+                Normal(loc=0.0, scale=1.0 / outputs["alpha_ip_d"])
+                .log_prob(outputs["attP"])
+                .mean()
+            )
+            ard_reg_c = (
+                Normal(loc=0.0, scale=1.0 / outputs["alpha_ip_c"])
+                .log_prob(outputs["attC"])
+                .mean()
+            )
             loss = -(ard_reg_d + ard_reg_c)
 
             return loss
 
     def configure_optimizers(self):
-        Ma = list(self.module.z_encoder.parameters()) + \
-             list(self.module.l_encoder.parameters()) + \
-             list(self.module.decoder.parameters())
-        Mb = list(self.module.d_encoder.parameters()) + \
-             list(self.module.c_encoder.parameters()) + \
-             list(self.module.donor_encoder.parameters())
+        Ma = (
+            list(self.module.z_encoder.parameters())
+            + list(self.module.l_encoder.parameters())
+            + list(self.module.decoder.parameters())
+        )
+        Mb = (
+            list(self.module.d_encoder.parameters())
+            + list(self.module.c_encoder.parameters())
+            + list(self.module.donor_encoder.parameters())
+        )
         Mc = list(self.module.classifier.parameters())
         params1 = filter(lambda p: p.requires_grad, Ma + Mb + Mc)
         optimizer1 = torch.optim.AdamW(
@@ -180,16 +189,16 @@ class FactorTrainingPlanA(TrainingPlan):
                 },
             )
 
-        params2 = filter(
-            lambda p: p.requires_grad, self.discriminator.parameters()
-        )
+        params2 = filter(lambda p: p.requires_grad, self.discriminator.parameters())
         optimizer2 = torch.optim.AdamW(
             params2, lr=0.001, eps=0.01, weight_decay=self.weight_decay
         )
         config2 = {"optimizer": optimizer2}
 
         Pa = list(self.module.ard_d.parameters()) + list(self.module.ard_c.parameters())
-        Pb = list(self.module.d_encoder_key.parameters()) + list(self.module.c_encoder_key.parameters())
+        Pb = list(self.module.d_encoder_key.parameters()) + list(
+            self.module.c_encoder_key.parameters()
+        )
         params3 = filter(lambda p: p.requires_grad, Pa + Pb)
         optimizer3 = torch.optim.AdamW(
             params3, lr=0.001, eps=0.01, weight_decay=self.weight_decay
@@ -209,25 +218,24 @@ class FactorTrainingPlanA(TrainingPlan):
 
 
 class FactorTrainingPlanB(TrainingPlan):
-
     def __init__(
-            self,
-            module: BaseModuleClass,
-            lr=1e-3,
-            weight_decay=1e-6,
-            n_steps_kl_warmup: Union[int, None] = None,
-            n_epochs_kl_warmup: Union[int, None] = 400,
-            reduce_lr_on_plateau: bool = False,
-            lr_factor: float = 0.6,
-            lr_patience: int = 30,
-            lr_threshold: float = 0.0,
-            lr_scheduler_metric: Literal[
-                "elbo_validation", "reconstruction_loss_validation", "kl_local_validation"
-            ] = "elbo_validation",
-            lr_min: float = 0,
-            discriminator: Union[bool, AdvNet] = False,
-            scale_tc_loss: Union[float, Literal["auto"]] = "auto",
-            **loss_kwargs,
+        self,
+        module: BaseModuleClass,
+        lr=1e-3,
+        weight_decay=1e-6,
+        n_steps_kl_warmup: Union[int, None] = None,
+        n_epochs_kl_warmup: Union[int, None] = 400,
+        reduce_lr_on_plateau: bool = False,
+        lr_factor: float = 0.6,
+        lr_patience: int = 30,
+        lr_threshold: float = 0.0,
+        lr_scheduler_metric: Literal[
+            "elbo_validation", "reconstruction_loss_validation", "kl_local_validation"
+        ] = "elbo_validation",
+        lr_min: float = 0,
+        discriminator: Union[bool, AdvNet] = False,
+        scale_tc_loss: Union[float, Literal["auto"]] = "auto",
+        **loss_kwargs,
     ):
         super().__init__(
             module=module,
@@ -245,9 +253,7 @@ class FactorTrainingPlanB(TrainingPlan):
         if discriminator is True:
             self.n_output_classifier = self.module.n_batch
             self.discriminator = AdvNet(
-                in_feature=self.module.n_latent,
-                hidden_size=128,
-                out_dim=2
+                in_feature=self.module.n_latent, hidden_size=128, out_dim=2
             )
         else:
             self.discriminator = discriminator
@@ -259,24 +265,23 @@ class FactorTrainingPlanB(TrainingPlan):
         return tc_loss
 
     def discriminator_loss(self, z):
-
         Dzb = self.discriminator.forward(z, if_activation=False, reverse=False)
         zperm = permute_dims(z)
-        Dperm = self.discriminator.forward(zperm.detach(), if_activation=False, reverse=False)
+        Dperm = self.discriminator.forward(
+            zperm.detach(), if_activation=False, reverse=False
+        )
 
         ones = torch.ones(z.shape[0], dtype=torch.long, device=z.device)
         zeros = torch.zeros(z.shape[0], dtype=torch.long, device=z.device)
-        d_loss1 = torch.nn.CrossEntropyLoss(reduction='mean')(Dzb, zeros)
-        d_loss2 = torch.nn.CrossEntropyLoss(reduction='mean')(Dperm, ones)
+        d_loss1 = torch.nn.CrossEntropyLoss(reduction="mean")(Dzb, zeros)
+        d_loss2 = torch.nn.CrossEntropyLoss(reduction="mean")(Dperm, ones)
         loss = (d_loss1 + d_loss2) * 0.5
 
         return loss
 
     def training_step(self, batch, batch_idx, optimizer_idx=0):
         kappa = (
-            1 - self.kl_weight
-            if self.scale_tc_loss == "auto"
-            else self.scale_tc_loss
+            1 - self.kl_weight if self.scale_tc_loss == "auto" else self.scale_tc_loss
         )
         if optimizer_idx == 0:
             loss_kwargs = dict(kl_weight=self.kl_weight)
@@ -327,9 +332,7 @@ class FactorTrainingPlanB(TrainingPlan):
             )
 
         if self.discriminator is not False:
-            params2 = filter(
-                lambda p: p.requires_grad, self.discriminator.parameters()
-            )
+            params2 = filter(lambda p: p.requires_grad, self.discriminator.parameters())
             optimizer2 = torch.optim.AdamW(
                 params2, lr=self.lr, eps=0.01, weight_decay=self.weight_decay
             )  # or 1e-3
@@ -348,7 +351,6 @@ class FactorTrainingPlanB(TrainingPlan):
 
 
 class LoggedTrainingPlan(TrainingPlan):
-
     def training_epoch_end(self, outputs):
         super().training_epoch_end(outputs=outputs)
         for name, val in _METRICS_TO_LOG:

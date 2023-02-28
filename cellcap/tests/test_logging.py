@@ -241,7 +241,10 @@ class MyModule(BaseModuleClass):
             tensor with shape (n_cells, n_genes, n_samples)
         """
         inference_kwargs = dict(n_samples=n_samples)
-        _, generative_outputs, = self.forward(
+        (
+            _,
+            generative_outputs,
+        ) = self.forward(
             tensors,
             inference_kwargs=inference_kwargs,
             compute_loss=False,
@@ -372,22 +375,22 @@ class MyModel(VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         logger.info("The model has been initialized")
 
     def train(
-            self,
-            max_epochs: int = 500,
-            lr: float = 1e-4,
-            use_gpu: Optional[Union[str, int, bool]] = None,
-            train_size: float = 0.9,
-            validation_size: Optional[float] = None,
-            batch_size: int = 128,
-            weight_decay: float = 1e-3,
-            eps: float = 1e-08,
-            early_stopping: bool = True,
-            save_best: bool = True,
-            check_val_every_n_epoch: Optional[int] = None,
-            n_steps_kl_warmup: Optional[int] = None,
-            n_epochs_kl_warmup: Optional[int] = 50,
-            plan_kwargs: Optional[dict] = None,
-            **kwargs,
+        self,
+        max_epochs: int = 500,
+        lr: float = 1e-4,
+        use_gpu: Optional[Union[str, int, bool]] = None,
+        train_size: float = 0.9,
+        validation_size: Optional[float] = None,
+        batch_size: int = 128,
+        weight_decay: float = 1e-3,
+        eps: float = 1e-08,
+        early_stopping: bool = True,
+        save_best: bool = True,
+        check_val_every_n_epoch: Optional[int] = None,
+        n_steps_kl_warmup: Optional[int] = None,
+        n_epochs_kl_warmup: Optional[int] = 50,
+        plan_kwargs: Optional[dict] = None,
+        **kwargs,
     ):
         update_dict = dict(
             lr=lr,
@@ -474,9 +477,7 @@ class MyModel(VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 def test_logging(simulated_dataset):
     adata = simulated_dataset
     print(adata)
-    MyModel.setup_anndata(adata=adata,
-                          batch_key="batch",
-                          labels_key="labels")
+    MyModel.setup_anndata(adata=adata, batch_key="batch", labels_key="labels")
     print(adata)
     model = MyModel(adata=adata, n_latent=4)
     model.train(1, check_val_every_n_epoch=1, train_size=0.5)

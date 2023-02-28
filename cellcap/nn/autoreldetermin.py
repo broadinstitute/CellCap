@@ -14,7 +14,7 @@ class ARD_dist(torch.nn.Module):
         return y
 
     def get_parameters(self):
-        parameter_list = [{"params": self.parameters(), "lr_mult": 1, 'decay_mult': 2}]
+        parameter_list = [{"params": self.parameters(), "lr_mult": 1, "decay_mult": 2}]
         return parameter_list
 
 
