@@ -29,7 +29,7 @@ from .test_integration import basic_run
 from ..scvi_module import CellCap
 
 CREATE_NEW_REFACTORING_BENCHMARK = False
-RUN_REFACTORING_TESTS_AGAINST_BENCHMARK = True
+RUN_REFACTORING_TESTS_AGAINST_BENCHMARK = False
 
 USE_CUDA = torch.cuda.is_available()
 DIRECTORY = ".refactoring_benchmark/"

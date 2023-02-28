@@ -89,6 +89,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         )
 
         # l encoder goes from n_input-dimensional data to 1-d library size
+        # TODO: this l_encoder is only here so refactor tests can run
+        # TODO: it is not used and can be deleted
         self.l_encoder = Encoder(
             n_input,
             1,
@@ -171,6 +173,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         encoder_input = x_
 
         qz_m, qz_v, z = self.z_encoder(encoder_input)
+
+        # TODO: after refactor, we can delete these lines, as l_encoder is not used
         ql_m, ql_v, library_encoded = self.l_encoder(
             encoder_input,
         )
@@ -190,8 +194,6 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             qz_v = qz_v.unsqueeze(0).expand((n_samples, qz_v.size(0), qz_v.size(1)))
             untran_z = Normal(qz_m, qz_v.sqrt()).sample()
             z = self.z_encoder.z_transformation(untran_z)
-            ql_m = ql_m.unsqueeze(0).expand((n_samples, ql_m.size(0), ql_m.size(1)))
-            ql_v = ql_v.unsqueeze(0).expand((n_samples, ql_v.size(0), ql_v.size(1)))
             library = library.unsqueeze(0).expand(
                 (n_samples, library.size(0), library.size(1))
             )

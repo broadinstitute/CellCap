@@ -145,10 +145,8 @@ class FactorTrainingPlanA(TrainingPlan):
             return loss
 
     def configure_optimizers(self):
-        Ma = (
-            list(self.module.z_encoder.parameters())
-            # + list(self.module.l_encoder.parameters())
-            + list(self.module.decoder.parameters())
+        Ma = list(self.module.z_encoder.parameters()) + list(
+            self.module.decoder.parameters()
         )
         Mb = (
             list(self.module.d_encoder.parameters())
