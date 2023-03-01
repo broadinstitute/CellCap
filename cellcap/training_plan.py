@@ -334,7 +334,7 @@ class FactorTrainingPlanB(TrainingPlan):
         if self.discriminator is not False:
             params2 = filter(lambda p: p.requires_grad, self.discriminator.parameters())
             optimizer2 = torch.optim.AdamW(
-                params2, lr=self.lr, eps=0.01, weight_decay=self.weight_decay
+                params2, lr=0.001, eps=0.01, weight_decay=self.weight_decay
             )  # or 1e-3
             config2 = {"optimizer": optimizer2}
 
