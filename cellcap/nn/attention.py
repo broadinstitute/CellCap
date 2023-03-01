@@ -11,7 +11,7 @@ class DotProductAttention(torch.nn.Module):
     softmax function to obtain the weights on the values
     """
 
-    def __init__(self, temp=0.5):
+    def __init__(self, temp=1.0):
         super(DotProductAttention, self).__init__()
         self.temp = temp
 

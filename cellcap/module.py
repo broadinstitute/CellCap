@@ -39,12 +39,11 @@ from typing import Callable, Optional, Union  # , Iterable, List, Tuple, Dict
 
 from .nn.drugencoder import DrugEncoder
 from .nn.donorencoder import DonorEncoder
-from .nn.attention import DotProductAttention
 from .nn.advclassifier import AdvNet
 from .nn.autoreldetermin import ARDregularizer
 
 from .utils import entropy
-from .training_plan import FactorTrainingPlanA
+from .training_plan import FactorTrainingPlanB
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
@@ -135,6 +134,16 @@ class LINEARVAE(BaseModuleClass):
             use_layer_norm=False,
         )
 
+        self.h_encoder = Encoder(
+            n_drug,
+            n_prog,
+            n_layers=1,
+            n_hidden=n_hidden,
+            dropout_rate=dropout_rate,
+            use_batch_norm=True,
+            use_layer_norm=False,
+        )
+
         # l encoder goes from n_input-dimensional data to 1-d library size
         self.l_encoder = Encoder(
             n_input,
@@ -153,11 +162,8 @@ class LINEARVAE(BaseModuleClass):
         self.c_encoder_key = DrugEncoder(n_latent, n_control, n_prog, key=True)
 
         self.donor_encoder = DonorEncoder(n_latent, n_donor)
-
         self.ard_d = ARDregularizer(n_drug, n_prog)
-        self.ard_c = ARDregularizer(n_control, n_prog)
-
-        self.attention = DotProductAttention()
+        self.w = torch.nn.Parameter(torch.rand(n_prog, n_latent))
 
         # linear decoder goes from n_latent-dimensional space to n_input-d data
         self.decoder = LinearDecoderSCVI(
@@ -177,13 +183,11 @@ class LINEARVAE(BaseModuleClass):
     def _get_inference_input(self, tensors):
         x = tensors[REGISTRY_KEYS.X_KEY]
         d = tensors["COND_KEY"]
-        c = tensors["CONT_KEY"]
         donor = tensors["DONOR_KEY"]
 
         input_dict = dict(
             x=x,
             d=d,
-            c=c,
             donor=donor,
         )
         return input_dict
@@ -191,14 +195,12 @@ class LINEARVAE(BaseModuleClass):
     def _get_generative_input(self, tensors, inference_outputs):
         z = inference_outputs["z"]
         Zp = inference_outputs["Zp"]
-        Zc = inference_outputs["Zc"]
         Zd = inference_outputs["Zd"]
         library = inference_outputs["library"]
 
         input_dict = dict(
             z=z,
             Zp=Zp,
-            Zc=Zc,
             Zd=Zd,
             library=library,
         )
@@ -222,7 +224,7 @@ class LINEARVAE(BaseModuleClass):
         return local_library_log_means, local_library_log_vars
 
     @auto_move_data
-    def inference(self, x, d, c, donor, n_samples=1):
+    def inference(self, x, d, donor, n_samples=1):
         """
         High level inference method.
 
@@ -235,19 +237,16 @@ class LINEARVAE(BaseModuleClass):
         encoder_input = x_
 
         qz_m, qz_v, z = self.z_encoder(encoder_input)
+        h_m, h_v, h = self.h_encoder(d)
+        h = F.sigmoid(h)
         ql_m, ql_v, library_encoded = self.l_encoder(
             encoder_input,
         )
 
+        Zp = torch.matmul(h, self.w)
         Zd = self.donor_encoder(donor)
 
-        Zp = self.d_encoder(d)
-        Zp_key = self.d_encoder_key(d)
-        Zc = self.c_encoder(c)
-        Zc_key = self.c_encoder_key(c)
-
         alpha_ip_d = self.ard_d(d)
-        alpha_ip_c = self.ard_c(c)
 
         if n_samples > 1:
             qz_m = qz_m.unsqueeze(0).expand((n_samples, qz_m.size(0), qz_m.size(1)))
@@ -260,18 +259,10 @@ class LINEARVAE(BaseModuleClass):
                 (n_samples, library.size(0), library.size(1))
             )
 
-        Zp, attP = self.attention(z.unsqueeze(1), Zp_key, Zp)
-        Zp = Zp.squeeze(1)
-        attP = attP.squeeze(1)
-        Zc, attC = self.attention(z.unsqueeze(1), Zc_key, Zc)
-        Zc = Zc.squeeze(1)
-        attC = attC.squeeze(1)
-
         prob = self.classifier(z)
 
         z = F.normalize(z, p=2, dim=1)
         Zp = F.normalize(Zp, p=2, dim=1)
-        Zc = F.normalize(Zc, p=2, dim=1)
         Zd = F.normalize(Zd, p=2, dim=1)
 
         outputs = dict(
@@ -280,23 +271,22 @@ class LINEARVAE(BaseModuleClass):
             qz_v=qz_v,
             ql_m=ql_m,
             ql_v=ql_v,
+            h_m=h_m,
+            h_v=h_v,
             prob=prob,
+            h=h,
             Zp=Zp,
-            Zc=Zc,
             Zd=Zd,
             library=library,
-            attP=attP,
-            attC=attC,
             alpha_ip_d=alpha_ip_d,
-            alpha_ip_c=alpha_ip_c,
         )
         return outputs
 
     @auto_move_data
-    def generative(self, z, Zp, Zc, Zd, library, y=None, transform_batch=None):
+    def generative(self, z, Zp, Zd, library, y=None, transform_batch=None):
         """Runs the generative model."""
         # Likelihood distribution
-        zA = z + Zp + Zc + Zd
+        zA = z + Zp + Zd
         decoder_input = zA
 
         # for scvi
@@ -348,6 +338,8 @@ class LINEARVAE(BaseModuleClass):
         qz_v = inference_outputs["qz_v"]
         ql_m = inference_outputs["ql_m"]
         ql_v = inference_outputs["ql_v"]
+        h_m = inference_outputs["h_m"]
+        h_v = inference_outputs["h_v"]
 
         mean = torch.zeros_like(qz_m)
         scale = torch.ones_like(qz_v)
@@ -370,13 +362,18 @@ class LINEARVAE(BaseModuleClass):
         kl_local_no_warmup = kl_divergence_l
         weighted_kl_local = kl_weight * kl_local_for_warmup + kl_local_no_warmup
 
+        kl_divergence_h = kl(Normal(h_m, torch.sqrt(h_v)),
+                             Normal(loc=0.0, scale=1.0 / inference_outputs["alpha_ip_d"])).sum(
+            dim=1
+        )
+
         advers_loss = torch.nn.BCELoss(reduction="sum")(
             inference_outputs["prob"], label
         )
         ent_penalty = entropy(generative_outputs["zA"])
 
         loss = torch.mean(
-            reconst_loss * 0.5 + weighted_kl_local + advers_loss + ent_penalty * 0.2
+            reconst_loss * 0.5 + weighted_kl_local + kl_divergence_h + advers_loss + ent_penalty * 0.2
         )
 
         kl_local = dict(
@@ -746,8 +743,8 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             use_gpu=use_gpu,
         )
 
-        training_plan = FactorTrainingPlanA(
-            self.module, discriminator=True, scale_tc_loss=1.0, **plan_kwargs
+        training_plan = FactorTrainingPlanB(
+            self.module, discriminator=True, scale_tc_loss=2.0, **plan_kwargs
         )
 
         runner = TrainRunner(
