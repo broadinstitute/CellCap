@@ -8,6 +8,29 @@ import numpy as np
 from scvi.data import synthetic_iid
 
 
+def init_weights(m):
+    classname = m.__class__.__name__
+    if classname.find("BatchNorm") != -1:
+        torch.nn.init.normal_(m.weight, 1.0, 0.02)
+        torch.nn.init.zeros_(m.bias)
+    elif classname.find("Linear") != -1:
+        torch.nn.init.xavier_normal_(m.weight)
+        torch.nn.init.zeros_(m.bias)
+
+
+def permute_dims(z):
+    assert z.dim() == 2
+
+    B, _ = z.size()
+    perm_z = []
+    for z_j in z.split(1, 1):
+        perm = torch.randperm(B).to(z.device)
+        perm_z_j = z_j[perm]
+        perm_z.append(perm_z_j)
+
+    return torch.cat(perm_z, 1)
+
+
 def entropy(x, temp=1.0):
     p = F.softmax(x / temp, dim=1)  # + 1e-8
     logp = F.log_softmax(x / temp, dim=1)  # + 1e-8
@@ -53,51 +76,3 @@ def generate_simulated_dataset() -> anndata.AnnData:
     adata.obs["pert"] = _random_one_hot(2, n)[:, 0]
 
     return adata
-
-
-class Metrics:
-    def __init__(self):
-        self.metrics = {}
-
-    def add(self, k, v):
-        self.metrics.update({k: v})
-
-    def remove(self, k):
-        self.metrics.pop(k)
-
-    def __iter__(self):
-        for k, v in self.metrics.items():
-            yield k, v
-
-
-_METRICS_TO_LOG = Metrics()
-
-
-def log_metric(name: str, tensor: torch.Tensor) -> None:
-    """Log a value, saving it to the model history.
-    Make use of logging in pytorch-lightning.
-
-    The idea is to log scalars, not full tensors. This function accepts tensors
-    and flattens them, assigning a unique name to each dimension. However, it
-    is a bad idea to try to log a tensor with a very large number of elements.
-
-    Parameters
-    ----------
-    name: Name of metric
-    tensor: Value to log
-    """
-    tensor = tensor.detach()
-    flat_tensor = tensor.flatten()
-    if len(flat_tensor) > 10:
-        raise UserWarning(
-            f"You are logging a tensor with {len(tensor)} "
-            f"elements. Each will have a separate column in "
-            f"the trainer object history, with an underscore "
-            f"appended to denote the entry."
-        )
-
-    if tensor.numel() == 1:
-        _METRICS_TO_LOG.add(name, tensor)
-    elif tensor.numel() > 1:
-        for i, val in enumerate(flat_tensor):
-            _METRICS_TO_LOG.add(f"{name}_{i}", val)
