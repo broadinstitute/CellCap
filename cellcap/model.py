@@ -111,7 +111,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
 
     def _get_inference_input(self, tensors):
         x = tensors[REGISTRY_KEYS.X_KEY]
-        p = tensors["COND_KEY"]
+        p = tensors["TARGET_KEY"]
         donor = tensors["DONOR_KEY"]
 
         input_dict = dict(

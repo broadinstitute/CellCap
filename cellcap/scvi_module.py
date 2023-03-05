@@ -296,7 +296,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         cls,
         adata: AnnData,
         layer: str,
-        cond_key: str,
         target_key: str,
         donor_key: str,
         **kwargs,
@@ -316,7 +315,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         setup_method_args = cls._get_setup_method_args(**locals())
         anndata_fields = [
             LayerField(REGISTRY_KEYS.X_KEY, layer, is_count_data=True),
-            ObsmField(registry_key="COND_KEY", obsm_key=cond_key),
             ObsmField(registry_key="TARGET_KEY", obsm_key=target_key),
             ObsmField(registry_key="DONOR_KEY", obsm_key=donor_key),
         ]
