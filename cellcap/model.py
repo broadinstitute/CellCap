@@ -9,7 +9,6 @@ from torch.distributions import kl_divergence as kl
 
 from scvi import REGISTRY_KEYS
 from scvi._compat import Literal
-from scvi.train._trainingplans import TrainingPlan
 from scvi.nn import Encoder, LinearDecoderSCVI, one_hot
 from scvi.module.base import BaseModuleClass, LossRecorder, auto_move_data
 from scvi.distributions import ZeroInflatedNegativeBinomial, NegativeBinomial
