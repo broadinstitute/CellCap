@@ -1,9 +1,9 @@
 """Utility functions"""
 
+import numpy as np
+
 import torch
 import torch.nn.functional as F
-import anndata
-import numpy as np
 
 from scvi.data import synthetic_iid
 
