@@ -30,8 +30,6 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         n_hidden: int = 128,
         n_latent: int = 10,
         n_drug: int = 3,
-        n_target: int = 5,
-        n_control: int = 3,
         n_prog: int = 5,
         n_donor: int = 5,
         n_layers_encoder: int = 1,
@@ -54,10 +52,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         self.latent_distribution = latent_distribution
         self.encode_covariates = encode_covariates
         self.n_drug = n_drug
-        self.n_control = n_control
         self.n_prog = n_prog
         self.n_donor = n_donor
-        self.n_target = n_target
 
         if self.dispersion == "gene":
             self.px_r = torch.nn.Parameter(torch.randn(n_input))
@@ -106,7 +102,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         self.classifier = AdvNet(
             in_feature=n_latent,
             hidden_size=64,
-            out_dim=self.n_target,
+            out_dim=self.n_drug,
         )
 
     def _get_inference_input(self, tensors):

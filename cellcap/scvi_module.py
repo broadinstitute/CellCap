@@ -271,7 +271,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             use_gpu=use_gpu,
         )
 
-        training_plan = TrainingPlan()
+        training_plan = TrainingPlan(self.module, **plan_kwargs)
         # training_plan = FactorTrainingPlanA(
         #     self.module, discriminator=True, scale_tc_loss=1.0, **plan_kwargs
         # )
