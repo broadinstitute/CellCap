@@ -73,7 +73,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # k stands for the dimension of latent space
         # d stands for the number of donors
 
-        self.alpha_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
+        self.log_alpha_pq = torch.nn.Parameter((torch.ones(n_drug, n_prog) * n_prog).log())
         self.H_pq = torch.nn.Parameter(torch.rand(n_drug, n_prog))
         self.w_qk = torch.nn.Parameter(torch.rand(n_prog, n_latent))
         self.w_donor_dk = torch.nn.Parameter(torch.zeros(n_donor, n_latent))
@@ -151,7 +151,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
 
         delta_z_donor = torch.matmul(donor, self.w_donor_dk)
 
-        log_alpha_ip = torch.matmul(p, self.alpha_pq)
+        log_alpha_ip = torch.matmul(p, self.log_alpha_pq)
         alpha_ip = log_alpha_ip.exp()
 
         if n_samples > 1:
