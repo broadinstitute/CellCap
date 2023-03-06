@@ -10,7 +10,6 @@ from scvi.module.base._base_module import BaseModuleClass
 
 from typing import Optional, Union
 
-from .metrics import _METRICS_TO_LOG
 from .nn.advclassifier import AdvNet
 from .utils import permute_dims
 
@@ -335,10 +334,3 @@ class FactorTrainingPlanB(TrainingPlan):
                 return opts
 
         return config1
-
-
-class LoggedTrainingPlan(TrainingPlan):
-    def training_epoch_end(self, outputs):
-        super().training_epoch_end(outputs=outputs)
-        for name, val in _METRICS_TO_LOG:
-            self.log(name, val)

@@ -10,11 +10,12 @@ from torch.distributions import kl_divergence as kl
 from scvi import REGISTRY_KEYS
 from scvi._compat import Literal
 from scvi.nn import Encoder, LinearDecoderSCVI, one_hot
-from scvi.module.base import BaseModuleClass, LossRecorder, auto_move_data
+from scvi.module.base import BaseModuleClass, LossOutput, auto_move_data
 from scvi.distributions import ZeroInflatedNegativeBinomial, NegativeBinomial
 
 from .mixins import CellCapMixin
 from .nn.advclassifier import AdvNet
+from typing import Dict
 
 # from .utils import entropy
 
@@ -179,6 +180,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             library=library,
             h=h,
             alpha_ip=alpha_ip,
+            alpha_pq=self.log_alpha_pq.detach().exp(),  # only for logging
         )
         return outputs
 
@@ -279,6 +281,26 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         kl_local = dict(
             kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z
         )
-        kl_global = torch.tensor(0.0)
 
-        return LossRecorder(loss, rec_loss, kl_local, kl_global)
+        # define extra metrics for logging
+        extra_metrics = {
+            'adv_loss': adv_loss,
+            'kl_divergence_h': kl_divergence_h,
+            'kl_divergence_delta': kl_divergence_delta,
+        }
+        alpha_pq_dict = logging_dict_from_tensor(inference_outputs["alpha_pq"], "alpha")
+        extra_metrics.update(alpha_pq_dict)
+
+        return LossOutput(
+            loss=loss,
+            reconstruction_loss=rec_loss,
+            kl_local=kl_local,
+            extra_metrics=extra_metrics,
+        )
+
+
+def logging_dict_from_tensor(x: torch.Tensor, name: str) -> Dict[str, torch.Tensor]:
+    """Take a > zero-dimensional tensor and flatten, returning a dictionary
+    with each value being a 0-d tensor, appropriate for logging."""
+    flat_x = x.flatten()
+    return {f'{name}_{i}': flat_x[i] for i in range(len(flat_x))}
