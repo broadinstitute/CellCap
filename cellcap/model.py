@@ -74,7 +74,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # k stands for the dimension of latent space
         # d stands for the number of donors
 
-        self.log_alpha_pq = torch.nn.Parameter((torch.ones(n_drug, n_prog) * n_prog).log())
+        self.log_alpha_pq = torch.nn.Parameter(
+            (torch.ones(n_drug, n_prog) * n_prog).log()
+        )
         self.H_pq = torch.nn.Parameter(torch.rand(n_drug, n_prog))
         self.w_qk = torch.nn.Parameter(torch.rand(n_prog, n_latent))
         self.w_donor_dk = torch.nn.Parameter(torch.zeros(n_donor, n_latent))
@@ -185,7 +187,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         return outputs
 
     @auto_move_data
-    def generative(self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None):
+    def generative(
+        self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None
+    ):
         """Runs the generative model."""
         # Likelihood distribution
         z = z_basal + delta_z + delta_z_donor
@@ -258,9 +262,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         )
 
         kl_divergence_delta = -1 * (
-            Normal(loc=0.0, scale=0.1)
-            .log_prob(inference_outputs["delta_z"])
-            .sum()
+            Normal(loc=0.0, scale=0.1).log_prob(inference_outputs["delta_z"]).sum()
         )
 
         kl_divergence_l = 0.0
@@ -269,13 +271,15 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         weighted_kl_local = kl_weight * kl_local_for_warmup + kl_local_no_warmup
 
         # Adversarial loss
-        adv_loss = torch.nn.BCELoss(reduction="sum")(
-            inference_outputs["prob"], label
-        )
+        adv_loss = torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], label)
         # ent_penalty = entropy(generative_outputs["z"])
 
         loss = torch.mean(
-            rec_loss + weighted_kl_local + kl_divergence_h + kl_divergence_delta + lamda * adv_loss
+            rec_loss
+            + weighted_kl_local
+            + kl_divergence_h
+            + kl_divergence_delta
+            + lamda * adv_loss
         )
 
         kl_local = dict(
@@ -284,9 +288,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
 
         # define extra metrics for logging
         extra_metrics = {
-            'adv_loss': adv_loss,
-            'kl_divergence_h': kl_divergence_h,
-            'kl_divergence_delta': kl_divergence_delta,
+            "adv_loss": adv_loss,
+            "kl_divergence_h": kl_divergence_h,
+            "kl_divergence_delta": kl_divergence_delta,
         }
         alpha_pq_dict = logging_dict_from_tensor(inference_outputs["alpha_pq"], "alpha")
         extra_metrics.update(alpha_pq_dict)
@@ -303,4 +307,4 @@ def logging_dict_from_tensor(x: torch.Tensor, name: str) -> Dict[str, torch.Tens
     """Take a > zero-dimensional tensor and flatten, returning a dictionary
     with each value being a 0-d tensor, appropriate for logging."""
     flat_x = x.flatten()
-    return {f'{name}_{i}': flat_x[i] for i in range(len(flat_x))}
+    return {f"{name}_{i}": flat_x[i] for i in range(len(flat_x))}
