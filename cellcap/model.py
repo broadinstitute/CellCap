@@ -278,13 +278,16 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             + lamda * adv_loss
         )
 
-        kl_local = dict(kl_divergence_z=kl_divergence_z)
+        # keep track of these local (per-cell) KL divergences for logging
+        kl_local = dict(
+            kl_divergence_z_basal=kl_divergence_z,
+            kl_divergence_delta_z=kl_divergence_delta,
+        )
 
         # define extra metrics for logging
         extra_metrics = {
             "adv_loss": adv_loss,
             "kl_divergence_h_mean": kl_divergence_h.mean(),
-            "kl_divergence_delta_mean": kl_divergence_delta.mean(),
         }
         alpha_pq_dict = logging_dict_from_tensor(inference_outputs["alpha_pq"], "alpha")
         extra_metrics.update(alpha_pq_dict)
