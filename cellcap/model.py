@@ -249,13 +249,13 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             dim=1
         )
 
-        kl_divergence_h = (
+        kl_divergence_h = -1 * (
             Normal(loc=0.0, scale=1.0 / inference_outputs["alpha_ip"])
             .log_prob(inference_outputs["h"])
             .sum()
         )
 
-        kl_divergence_delta = (
+        kl_divergence_delta = -1 * (
             Normal(loc=0.0, scale=0.1)
             .log_prob(inference_outputs["delta_z"])
             .sum()
