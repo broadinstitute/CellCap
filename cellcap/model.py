@@ -247,50 +247,42 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         mean = torch.zeros_like(qz_m)
         scale = torch.ones_like(qz_v)
 
-        # reconstruction loss
+        # reconstruction loss, dimension of minibatch
         rec_loss = -generative_outputs["px"].log_prob(x).sum(-1)
 
-        # KL divergence
-        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
-            dim=1
-        )
+        # KL divergence for z_basal, dimension of minibatch
+        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(-1)
 
+        # KL divergence for h_ip, dimension of minibatch
         kl_divergence_h = -1 * (
             Normal(loc=0.0, scale=1.0 / inference_outputs["alpha_ip"])
             .log_prob(inference_outputs["h"])
-            .sum()
+            .sum(-1)
         )
 
+        # KL divergence for delta_z, dimension of minibatch
         kl_divergence_delta = -1 * (
-            Normal(loc=0.0, scale=0.1).log_prob(inference_outputs["delta_z"]).sum()
+            Normal(loc=0.0, scale=0.1).log_prob(inference_outputs["delta_z"]).sum(-1)
         )
 
-        kl_divergence_l = 0.0
-        kl_local_for_warmup = kl_divergence_z
-        kl_local_no_warmup = kl_divergence_l
-        weighted_kl_local = kl_weight * kl_local_for_warmup + kl_local_no_warmup
-
-        # Adversarial loss
+        # Adversarial loss, summing reduction results in one number
         adv_loss = torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], label)
         # ent_penalty = entropy(generative_outputs["z"])
 
         loss = torch.mean(
             rec_loss
-            + weighted_kl_local
+            + kl_divergence_z
             + kl_divergence_h
-            + kl_divergence_delta
-            + lamda * adv_loss
-        )
+            + kl_divergence_delta,
+        ) + lamda * adv_loss
 
-        kl_local = dict(
-            kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z
-        )
+        kl_local = dict(kl_divergence_z=kl_divergence_z)
 
         # define extra metrics for logging
         extra_metrics = {
             "adv_loss": adv_loss,
-            "kl_divergence_h": kl_divergence_h,
-            "kl_divergence_delta": kl_divergence_delta,
+            "kl_divergence_h_mean": kl_divergence_h.mean(),
+            "kl_divergence_delta_mean": kl_divergence_delta.mean(),
         }
         alpha_pq_dict = logging_dict_from_tensor(inference_outputs["alpha_pq"], "alpha")
         extra_metrics.update(alpha_pq_dict)
