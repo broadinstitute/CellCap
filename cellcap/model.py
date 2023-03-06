@@ -251,7 +251,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         rec_loss = -generative_outputs["px"].log_prob(x).sum(-1)
 
         # KL divergence for z_basal, dimension of minibatch
-        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(-1)
+        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
+            -1
+        )
 
         # KL divergence for h_ip, dimension of minibatch
         kl_divergence_h = -1 * (
@@ -269,12 +271,12 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         adv_loss = torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], label)
         # ent_penalty = entropy(generative_outputs["z"])
 
-        loss = torch.mean(
-            rec_loss
-            + kl_divergence_z
-            + kl_divergence_h
-            + kl_divergence_delta,
-        ) + lamda * adv_loss
+        loss = (
+            torch.mean(
+                rec_loss + kl_divergence_z + kl_divergence_h + kl_divergence_delta,
+            )
+            + lamda * adv_loss
+        )
 
         kl_local = dict(kl_divergence_z=kl_divergence_z)
 
