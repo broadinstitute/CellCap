@@ -23,7 +23,7 @@ from scvi.model.base import (
 from scvi.data import AnnDataManager
 from scvi.utils import setup_anndata_dsp
 from scvi.data.fields import (
-    CategoricalObsField,
+    # CategoricalObsField,
     LayerField,
     ObsmField,
 )
@@ -31,6 +31,7 @@ from scvi.data.fields import (
 from typing import Optional, Union
 
 from scvi.train._trainingplans import TrainingPlan
+
 # from .training_plan import FactorTrainingPlanA
 from .model import CellCapModel
 
@@ -102,21 +103,18 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return loadings
 
     def get_pert_loadings(self) -> pd.DataFrame:
-
         w = F.normalize(self.module.w_qk, p=2, dim=1)
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_ard_loadings(self) -> pd.DataFrame:
-
         w = self.module.alpha_pq
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_donor_loadings(self) -> pd.DataFrame:
-
         w = F.normalize(self.module.w_donor_dk, p=2, dim=1)
         loadings = torch.Tensor.cpu(w).detach().numpy()
         loadings = pd.DataFrame(loadings.T)
@@ -154,7 +152,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(adata=adata, batch_size=batch_size)
         embedding = []
-        atts = []
+        # atts = []
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)

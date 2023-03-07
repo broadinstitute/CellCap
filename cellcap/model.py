@@ -10,11 +10,12 @@ from torch.distributions import kl_divergence as kl
 from scvi import REGISTRY_KEYS
 from scvi._compat import Literal
 from scvi.nn import Encoder, LinearDecoderSCVI, one_hot
-from scvi.module.base import BaseModuleClass, LossRecorder, auto_move_data
+from scvi.module.base import BaseModuleClass, LossOutput, auto_move_data
 from scvi.distributions import ZeroInflatedNegativeBinomial, NegativeBinomial
 
 from .mixins import CellCapMixin
 from .nn.advclassifier import AdvNet
+from typing import Dict
 
 # from .utils import entropy
 
@@ -73,7 +74,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # k stands for the dimension of latent space
         # d stands for the number of donors
 
-        self.alpha_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
+        self.log_alpha_pq = torch.nn.Parameter(
+            (torch.ones(n_drug, n_prog) * n_prog).log()
+        )
         self.H_pq = torch.nn.Parameter(torch.rand(n_drug, n_prog))
         self.w_qk = torch.nn.Parameter(torch.rand(n_prog, n_latent))
         self.w_donor_dk = torch.nn.Parameter(torch.zeros(n_donor, n_latent))
@@ -151,7 +154,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
 
         delta_z_donor = torch.matmul(donor, self.w_donor_dk)
 
-        log_alpha_ip = torch.matmul(p, self.alpha_pq)
+        log_alpha_ip = torch.matmul(p, self.log_alpha_pq)
         alpha_ip = log_alpha_ip.exp()
 
         if n_samples > 1:
@@ -179,11 +182,14 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             library=library,
             h=h,
             alpha_ip=alpha_ip,
+            alpha_pq=self.log_alpha_pq.detach().exp(),  # only for logging
         )
         return outputs
 
     @auto_move_data
-    def generative(self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None):
+    def generative(
+        self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None
+    ):
         """Runs the generative model."""
         # Likelihood distribution
         z = z_basal + delta_z + delta_z_donor
@@ -241,44 +247,61 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         mean = torch.zeros_like(qz_m)
         scale = torch.ones_like(qz_v)
 
-        # reconstruction loss
+        # reconstruction loss, dimension of minibatch
         rec_loss = -generative_outputs["px"].log_prob(x).sum(-1)
 
-        # KL divergence
+        # KL divergence for z_basal, dimension of minibatch
         kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
-            dim=1
+            -1
         )
 
-        kl_divergence_h = (
+        # KL divergence for h_ip, dimension of minibatch
+        kl_divergence_h = -1 * (
             Normal(loc=0.0, scale=1.0 / inference_outputs["alpha_ip"])
             .log_prob(inference_outputs["h"])
-            .sum()
+            .sum(-1)
         )
 
-        kl_divergence_delta = (
-            Normal(loc=0.0, scale=0.1)
-            .log_prob(inference_outputs["delta_z"])
-            .sum()
+        # KL divergence for delta_z, dimension of minibatch
+        kl_divergence_delta = -1 * (
+            Normal(loc=0.0, scale=0.1).log_prob(inference_outputs["delta_z"]).sum(-1)
         )
 
-        kl_divergence_l = 0.0
-        kl_local_for_warmup = kl_divergence_z
-        kl_local_no_warmup = kl_divergence_l
-        weighted_kl_local = kl_weight * kl_local_for_warmup + kl_local_no_warmup
-
-        # Adversarial loss
-        adv_loss = torch.nn.BCELoss(reduction="sum")(
-            inference_outputs["prob"], label
-        )
+        # Adversarial loss, summing reduction results in one number
+        adv_loss = torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], label)
         # ent_penalty = entropy(generative_outputs["z"])
 
-        loss = torch.mean(
-            rec_loss + weighted_kl_local + kl_divergence_h + kl_divergence_delta + lamda * adv_loss
+        loss = (
+            torch.mean(
+                rec_loss + kl_divergence_z + kl_divergence_h + kl_divergence_delta,
+            )
+            + lamda * adv_loss
         )
 
+        # keep track of these local (per-cell) KL divergences for logging
         kl_local = dict(
-            kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z
+            kl_divergence_z_basal=kl_divergence_z,
+            kl_divergence_delta_z=kl_divergence_delta,
         )
-        kl_global = torch.tensor(0.0)
 
-        return LossRecorder(loss, rec_loss, kl_local, kl_global)
+        # define extra metrics for logging
+        extra_metrics = {
+            "adv_loss": adv_loss,
+            "kl_divergence_h_mean": kl_divergence_h.mean(),
+        }
+        alpha_pq_dict = logging_dict_from_tensor(inference_outputs["alpha_pq"], "alpha")
+        extra_metrics.update(alpha_pq_dict)
+
+        return LossOutput(
+            loss=loss,
+            reconstruction_loss=rec_loss,
+            kl_local=kl_local,
+            extra_metrics=extra_metrics,
+        )
+
+
+def logging_dict_from_tensor(x: torch.Tensor, name: str) -> Dict[str, torch.Tensor]:
+    """Take a > zero-dimensional tensor and flatten, returning a dictionary
+    with each value being a 0-d tensor, appropriate for logging."""
+    flat_x = x.flatten()
+    return {f"{name}_{i}": flat_x[i] for i in range(len(flat_x))}

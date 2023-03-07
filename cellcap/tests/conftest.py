@@ -25,13 +25,13 @@ def small_real_dataset() -> Tuple[anndata.AnnData, Dict[str, Any], Dict[str, Any
 
     # fixed aspects of this dataset
     setup_adata_kwargs = {
-        "pert_key": "Condition",
         "layer": "counts",
-        "cond_key": "X_drug",
-        "cont_key": "X_cont",
         "target_key": "X_target",
         "donor_key": "X_donor",
     }
-    adata_kwargs = {"n_drug": 12, "n_control": 2, "n_target": 14, "n_donor": 33}
+    adata_kwargs = {
+        "n_drug": 14,
+        "n_donor": 33,
+    }
 
     return adata, setup_adata_kwargs, adata_kwargs
