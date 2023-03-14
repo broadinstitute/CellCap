@@ -1,10 +1,11 @@
 """Utility functions"""
 
-import torch
-import torch.nn.functional as F
-import anndata
 import numpy as np
 
+import torch
+import torch.nn.functional as F
+
+import anndata
 from scvi.data import synthetic_iid
 
 

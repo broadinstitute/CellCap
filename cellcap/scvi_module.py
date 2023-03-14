@@ -23,14 +23,16 @@ from scvi.model.base import (
 from scvi.data import AnnDataManager
 from scvi.utils import setup_anndata_dsp
 from scvi.data.fields import (
-    CategoricalObsField,
+    # CategoricalObsField,
     LayerField,
     ObsmField,
 )
 
 from typing import Optional, Union
 
-from .training_plan import FactorTrainingPlanA
+from scvi.train._trainingplans import TrainingPlan
+
+# from .training_plan import FactorTrainingPlanA
 from .model import CellCapModel
 
 torch.backends.cudnn.benchmark = True
@@ -101,30 +103,19 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return loadings
 
     def get_pert_loadings(self) -> pd.DataFrame:
-        weights = []
-        for p in self.module.d_encoder.drug_weights.parameters():
-            weights.append(p)
-        w = weights[0]
-        w = F.normalize(w, p=2, dim=2)
+        w = F.normalize(self.module.w_qk, p=2, dim=1)
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_ard_loadings(self) -> pd.DataFrame:
-        weights = []
-        for p in self.module.ard_d.ard_dist.parameters():
-            weights.append(p)
-        w = weights[0]
+        w = self.module.alpha_pq
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_donor_loadings(self) -> pd.DataFrame:
-        weights = []
-        for p in self.module.donor_encoder.drug_weights.parameters():
-            weights.append(p)
-        w = weights[0]
-        w = F.normalize(w, p=2, dim=1)
+        w = F.normalize(self.module.w_donor_dk, p=2, dim=1)
         loadings = torch.Tensor.cpu(w).detach().numpy()
         loadings = pd.DataFrame(loadings.T)
 
@@ -145,7 +136,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
-            z = outputs["z"]
+            z = outputs["z_basal"]
             embedding += [z.cpu()]
         return np.array(torch.cat(embedding))
 
@@ -161,41 +152,14 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(adata=adata, batch_size=batch_size)
         embedding = []
-        atts = []
+        # atts = []
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
-            Zp = outputs["Zp"]
-            embedding += [Zp.cpu()]
+            delta_z = outputs["delta_z"]
+            embedding += [delta_z.cpu()]
 
-            attP = outputs["attP"]
-            atts += [attP.cpu()]
-
-        return np.array(torch.cat(embedding)), np.array(torch.cat(atts))
-
-    @torch.no_grad()
-    def get_control_embedding(
-        self,
-        adata: Optional[AnnData] = None,
-        batch_size: Optional[int] = None,
-    ) -> np.ndarray:
-        if self.is_trained_ is False:
-            raise RuntimeError("Please train the model first.")
-
-        adata = self._validate_anndata(adata)
-        post = self._make_data_loader(adata=adata, batch_size=batch_size)
-        embedding = []
-        atts = []
-        for tensors in post:
-            inference_inputs = self.module._get_inference_input(tensors)
-            outputs = self.module.inference(**inference_inputs)
-            Zp = outputs["Zc"]
-            embedding += [Zp.cpu()]
-
-            attC = outputs["attC"]
-            atts += [attC.cpu()]
-
-        return np.array(torch.cat(embedding)), np.array(torch.cat(atts))
+        return np.array(torch.cat(embedding))
 
     @torch.no_grad()
     def get_donor_embedding(
@@ -214,8 +178,8 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
-            z = outputs["Zd"]
-            embedding += [z.cpu()]
+            delta_z_donor = outputs["delta_z_donor"]
+            embedding += [delta_z_donor.cpu()]
         return np.array(torch.cat(embedding))
 
     @torch.no_grad()
@@ -233,9 +197,9 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
-            z = outputs["z"]
-            Zp = outputs["Zp"]
-            embedding += [z.cpu() + Zp.cpu()]
+            z_basal = outputs["z_basal"]
+            delta_z = outputs["delta_z"]
+            embedding += [z_basal.cpu() + delta_z.cpu()]
         return np.array(torch.cat(embedding))
 
     @torch.no_grad()
@@ -305,9 +269,10 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             use_gpu=use_gpu,
         )
 
-        training_plan = FactorTrainingPlanA(
-            self.module, discriminator=True, scale_tc_loss=1.0, **plan_kwargs
-        )
+        training_plan = TrainingPlan(self.module, **plan_kwargs)
+        # training_plan = FactorTrainingPlanA(
+        #     self.module, discriminator=True, scale_tc_loss=1.0, **plan_kwargs
+        # )
 
         runner = TrainRunner(
             self,
@@ -329,9 +294,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         cls,
         adata: AnnData,
         layer: str,
-        pert_key: str,
-        cond_key: str,
-        cont_key: str,
         target_key: str,
         donor_key: str,
         **kwargs,
@@ -351,9 +313,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         setup_method_args = cls._get_setup_method_args(**locals())
         anndata_fields = [
             LayerField(REGISTRY_KEYS.X_KEY, layer, is_count_data=True),
-            CategoricalObsField(registry_key="PERT_KEY", obs_key=pert_key),
-            ObsmField(registry_key="COND_KEY", obsm_key=cond_key),
-            ObsmField(registry_key="CONT_KEY", obsm_key=cont_key),
             ObsmField(registry_key="TARGET_KEY", obsm_key=target_key),
             ObsmField(registry_key="DONOR_KEY", obsm_key=donor_key),
         ]

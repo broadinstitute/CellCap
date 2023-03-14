@@ -10,17 +10,14 @@ from torch.distributions import kl_divergence as kl
 from scvi import REGISTRY_KEYS
 from scvi._compat import Literal
 from scvi.nn import Encoder, LinearDecoderSCVI, one_hot
-from scvi.module.base import BaseModuleClass, LossRecorder, auto_move_data
+from scvi.module.base import BaseModuleClass, LossOutput, auto_move_data
 from scvi.distributions import ZeroInflatedNegativeBinomial, NegativeBinomial
 
-from .nn.drugencoder import DrugEncoder
-from .nn.donorencoder import DonorEncoder
-from .nn.attention import DotProductAttention
-from .nn.advclassifier import AdvNet
-from .nn.autoreldetermin import ARDregularizer
 from .mixins import CellCapMixin
+from .nn.advclassifier import AdvNet
+from typing import Dict
 
-from .utils import entropy
+# from .utils import entropy
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
@@ -34,8 +31,6 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         n_hidden: int = 128,
         n_latent: int = 10,
         n_drug: int = 3,
-        n_target: int = 5,
-        n_control: int = 3,
         n_prog: int = 5,
         n_donor: int = 5,
         n_layers_encoder: int = 1,
@@ -58,10 +53,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         self.latent_distribution = latent_distribution
         self.encode_covariates = encode_covariates
         self.n_drug = n_drug
-        self.n_control = n_control
         self.n_prog = n_prog
         self.n_donor = n_donor
-        self.n_target = n_target
 
         if self.dispersion == "gene":
             self.px_r = torch.nn.Parameter(torch.randn(n_input))
@@ -76,6 +69,18 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
                 "{}".format(self.dispersion)
             )
 
+        # p stands for perturbation
+        # q stands for the dimension of transcriptional response
+        # k stands for the dimension of latent space
+        # d stands for the number of donors
+
+        self.log_alpha_pq = torch.nn.Parameter(
+            (torch.ones(n_drug, n_prog) * n_prog).log()
+        )
+        self.H_pq = torch.nn.Parameter(torch.rand(n_drug, n_prog))
+        self.w_qk = torch.nn.Parameter(torch.rand(n_prog, n_latent))
+        self.w_donor_dk = torch.nn.Parameter(torch.zeros(n_donor, n_latent))
+
         self.z_encoder = Encoder(
             n_input,
             n_latent,
@@ -87,32 +92,6 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             use_batch_norm=use_batch_norm in ["encoder", "both"],
             use_layer_norm=False,
         )
-
-        # l encoder goes from n_input-dimensional data to 1-d library size
-        # TODO: this l_encoder is only here so refactor tests can run
-        # TODO: it is not used and can be deleted
-        self.l_encoder = Encoder(
-            n_input,
-            1,
-            n_layers=1,
-            n_hidden=n_hidden,
-            dropout_rate=dropout_rate,
-            inject_covariates=deeply_inject_covariates,
-            use_batch_norm=use_batch_norm in ["encoder", "both"],
-            use_layer_norm=False,
-        )
-
-        self.d_encoder = DrugEncoder(n_latent, n_drug, n_prog, key=False)
-        self.c_encoder = DrugEncoder(n_latent, n_control, n_prog, key=False)
-        self.d_encoder_key = DrugEncoder(n_latent, n_drug, n_prog, key=True)
-        self.c_encoder_key = DrugEncoder(n_latent, n_control, n_prog, key=True)
-
-        self.donor_encoder = DonorEncoder(n_latent, n_donor)
-
-        self.ard_d = ARDregularizer(n_drug, n_prog)
-        self.ard_c = ARDregularizer(n_control, n_prog)
-
-        self.attention = DotProductAttention()
 
         # linear decoder goes from n_latent-dimensional space to n_input-d data
         self.decoder = LinearDecoderSCVI(
@@ -126,41 +105,37 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         self.classifier = AdvNet(
             in_feature=n_latent,
             hidden_size=64,
-            out_dim=self.n_target,
+            out_dim=self.n_drug,
         )
 
     def _get_inference_input(self, tensors):
         x = tensors[REGISTRY_KEYS.X_KEY]
-        d = tensors["COND_KEY"]
-        c = tensors["CONT_KEY"]
+        p = tensors["TARGET_KEY"]
         donor = tensors["DONOR_KEY"]
 
         input_dict = dict(
             x=x,
-            d=d,
-            c=c,
+            p=p,
             donor=donor,
         )
         return input_dict
 
     def _get_generative_input(self, tensors, inference_outputs):
-        z = inference_outputs["z"]
-        Zp = inference_outputs["Zp"]
-        Zc = inference_outputs["Zc"]
-        Zd = inference_outputs["Zd"]
+        z_basal = inference_outputs["z_basal"]
+        delta_z = inference_outputs["delta_z"]
+        delta_z_donor = inference_outputs["delta_z_donor"]
         library = inference_outputs["library"]
 
         input_dict = dict(
-            z=z,
-            Zp=Zp,
-            Zc=Zc,
-            Zd=Zd,
+            z_basal=z_basal,
+            delta_z=delta_z,
+            delta_z_donor=delta_z_donor,
             library=library,
         )
         return input_dict
 
     @auto_move_data
-    def inference(self, x, d, c, donor, n_samples=1):
+    def inference(self, x, p, donor, n_samples=1):
         """
         High level inference method.
 
@@ -172,68 +147,53 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             x_ = torch.log(1 + x_)
         encoder_input = x_
 
-        qz_m, qz_v, z = self.z_encoder(encoder_input)
+        qz_m, qz_v, z_basal = self.z_encoder(encoder_input)
 
-        # TODO: after refactor, we can delete these lines, as l_encoder is not used
-        ql_m, ql_v, library_encoded = self.l_encoder(
-            encoder_input,
-        )
+        h = torch.matmul(p, self.H_pq)
+        delta_z = torch.matmul(h, self.w_qk)
 
-        Zd = self.donor_encoder(donor)
+        delta_z_donor = torch.matmul(donor, self.w_donor_dk)
 
-        Zp = self.d_encoder(d)
-        Zp_key = self.d_encoder_key(d)
-        Zc = self.c_encoder(c)
-        Zc_key = self.c_encoder_key(c)
-
-        alpha_ip_d = self.ard_d(d)
-        alpha_ip_c = self.ard_c(c)
+        log_alpha_ip = torch.matmul(p, self.log_alpha_pq)
+        alpha_ip = log_alpha_ip.exp()
 
         if n_samples > 1:
             qz_m = qz_m.unsqueeze(0).expand((n_samples, qz_m.size(0), qz_m.size(1)))
             qz_v = qz_v.unsqueeze(0).expand((n_samples, qz_v.size(0), qz_v.size(1)))
             untran_z = Normal(qz_m, qz_v.sqrt()).sample()
-            z = self.z_encoder.z_transformation(untran_z)
+            z_basal = self.z_encoder.z_transformation(untran_z)
             library = library.unsqueeze(0).expand(
                 (n_samples, library.size(0), library.size(1))
             )
 
-        Zp, attP = self.attention(z.unsqueeze(1), Zp_key, Zp)
-        Zp = Zp.squeeze(1)
-        attP = attP.squeeze(1)
-        Zc, attC = self.attention(z.unsqueeze(1), Zc_key, Zc)
-        Zc = Zc.squeeze(1)
-        attC = attC.squeeze(1)
+        prob = self.classifier(z_basal)
 
-        prob = self.classifier(z)
-
-        z = F.normalize(z, p=2, dim=1)
-        Zp = F.normalize(Zp, p=2, dim=1)
-        Zc = F.normalize(Zc, p=2, dim=1)
-        Zd = F.normalize(Zd, p=2, dim=1)
+        z_basal = F.normalize(z_basal, p=2, dim=1)
+        delta_z = F.normalize(delta_z, p=2, dim=1)
+        delta_z_donor = F.normalize(delta_z_donor, p=2, dim=1)
 
         outputs = dict(
-            z=z,
+            z_basal=z_basal,
             qz_m=qz_m,
             qz_v=qz_v,
             prob=prob,
-            Zp=Zp,
-            Zc=Zc,
-            Zd=Zd,
+            delta_z=delta_z,
+            delta_z_donor=delta_z_donor,
             library=library,
-            attP=attP,
-            attC=attC,
-            alpha_ip_d=alpha_ip_d,
-            alpha_ip_c=alpha_ip_c,
+            h=h,
+            alpha_ip=alpha_ip,
+            alpha_pq=self.log_alpha_pq.detach().exp(),  # only for logging
         )
         return outputs
 
     @auto_move_data
-    def generative(self, z, Zp, Zc, Zd, library, y=None, transform_batch=None):
+    def generative(
+        self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None
+    ):
         """Runs the generative model."""
         # Likelihood distribution
-        zA = z + Zp + Zc + Zd
-        decoder_input = zA
+        z = z_basal + delta_z + delta_z_donor
+        decoder_input = z
 
         # for scvi
         categorical_input = tuple()
@@ -267,8 +227,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
 
         # Priors
         pl = None
-        pz = Normal(torch.zeros_like(zA), torch.ones_like(zA))
-        return dict(zA=zA, px=px, pl=pl, pz=pz)
+        pz = Normal(torch.zeros_like(z), torch.ones_like(z))
+        return dict(z=z, px=px, pl=pl, pz=pz)
 
     def loss(
         self,
@@ -276,6 +236,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         inference_outputs,
         generative_outputs,
         kl_weight: float = 1.0,
+        lamda: float = 2.0,  # coefficient of adversarial loss
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
         label = tensors["TARGET_KEY"]
@@ -286,30 +247,61 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         mean = torch.zeros_like(qz_m)
         scale = torch.ones_like(qz_v)
 
+        # reconstruction loss, dimension of minibatch
+        rec_loss = -generative_outputs["px"].log_prob(x).sum(-1)
+
+        # KL divergence for z_basal, dimension of minibatch
         kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
-            dim=1
+            -1
         )
 
-        kl_divergence_l = 0.0
-
-        reconst_loss = -generative_outputs["px"].log_prob(x).sum(-1)
-
-        kl_local_for_warmup = kl_divergence_z
-        kl_local_no_warmup = kl_divergence_l
-        weighted_kl_local = kl_weight * kl_local_for_warmup + kl_local_no_warmup
-
-        advers_loss = torch.nn.BCELoss(reduction="sum")(
-            inference_outputs["prob"], label
-        )
-        ent_penalty = entropy(generative_outputs["zA"])
-
-        loss = torch.mean(
-            reconst_loss * 0.5 + weighted_kl_local + advers_loss + ent_penalty * 0.2
+        # KL divergence for h_ip, dimension of minibatch
+        kl_divergence_h = -1 * (
+            Normal(loc=0.0, scale=1.0 / inference_outputs["alpha_ip"])
+            .log_prob(inference_outputs["h"])
+            .sum(-1)
         )
 
+        # KL divergence for delta_z, dimension of minibatch
+        kl_divergence_delta = -1 * (
+            Normal(loc=0.0, scale=0.1).log_prob(inference_outputs["delta_z"]).sum(-1)
+        )
+
+        # Adversarial loss, summing reduction results in one number
+        adv_loss = torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], label)
+        # ent_penalty = entropy(generative_outputs["z"])
+
+        loss = (
+            torch.mean(
+                rec_loss + kl_divergence_z + kl_divergence_h + kl_divergence_delta,
+            )
+            + lamda * adv_loss
+        )
+
+        # keep track of these local (per-cell) KL divergences for logging
         kl_local = dict(
-            kl_divergence_l=kl_divergence_l, kl_divergence_z=kl_divergence_z
+            kl_divergence_z_basal=kl_divergence_z,
+            kl_divergence_delta_z=kl_divergence_delta,
         )
-        kl_global = torch.tensor(0.0)
 
-        return LossRecorder(loss, reconst_loss, kl_local, kl_global)
+        # define extra metrics for logging
+        extra_metrics = {
+            "adv_loss": adv_loss,
+            "kl_divergence_h_mean": kl_divergence_h.mean(),
+        }
+        alpha_pq_dict = logging_dict_from_tensor(inference_outputs["alpha_pq"], "alpha")
+        extra_metrics.update(alpha_pq_dict)
+
+        return LossOutput(
+            loss=loss,
+            reconstruction_loss=rec_loss,
+            kl_local=kl_local,
+            extra_metrics=extra_metrics,
+        )
+
+
+def logging_dict_from_tensor(x: torch.Tensor, name: str) -> Dict[str, torch.Tensor]:
+    """Take a > zero-dimensional tensor and flatten, returning a dictionary
+    with each value being a 0-d tensor, appropriate for logging."""
+    flat_x = x.flatten()
+    return {f"{name}_{i}": flat_x[i] for i in range(len(flat_x))}
