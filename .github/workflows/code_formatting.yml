@@ -22,11 +22,11 @@ jobs:
     - name: 'Install dependencies'
       run: pip install .[dev]
 
+    - name: 'Print package versions'
+        run: pip list
+
     - name: 'Lint with flake8'
       run: flake8
 
     - name: 'Format with black'
-      run: black --check .
-
-    - name: 'Print package versions'
-      run: pip list
+      run: black --diff --check .
