@@ -54,7 +54,7 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     install_requires=get_requirements(),
     extras_require={
-        "dev": ["pytest", "black", "flake8"],
+        "dev": ["pytest", "black==23.1.0", "flake8"],
     },
     # entry_points={
     #     'console_scripts': ['cellbender=cellbender.base_cli:main'],
