@@ -134,7 +134,6 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         return input_dict
 
     @auto_move_data
-
     def inference(self, x, p, donor, n_samples=1):
         """High level inference method.
 
