@@ -163,7 +163,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             )
 
         # Attention
-        key = torch.matmul(p, self.H_key.reshape((self.n_drug, self.n_prog * self.n_latent)))
+        key = torch.matmul(
+            p, self.H_key.reshape((self.n_drug, self.n_prog * self.n_latent))
+        )
         key = key.reshape((p.size(0), self.n_prog, self.n_latent))
         score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
         score = score.view(-1, self.n_prog)
@@ -262,22 +264,29 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         rec_loss = -generative_outputs["px"].log_prob(x).sum(-1)
 
         # KL divergence for z_basal, dimension of minibatch
-        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)),
-                             Normal(mean, scale)).sum(
+        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
             dim=1
         )
 
-        kl_divergence_h = -1 * (
-            Normal(loc=0.0, scale=inference_outputs["alpha_ip"])
-            .log_prob(inference_outputs["H_attn"])
-            .sum(-1)
-        ) * h_kl_weight
+        kl_divergence_h = (
+            -1
+            * (
+                Normal(loc=0.0, scale=inference_outputs["alpha_ip"])
+                .log_prob(inference_outputs["H_attn"])
+                .sum(-1)
+            )
+            * h_kl_weight
+        )
 
-        kl_divergence_delta = -1 * (
-            Normal(loc=0.0, scale=1.0)
-            .log_prob(inference_outputs["delta_z"])
-            .sum(-1)
-        ) * delta_kl_weight
+        kl_divergence_delta = (
+            -1
+            * (
+                Normal(loc=0.0, scale=1.0)
+                .log_prob(inference_outputs["delta_z"])
+                .sum(-1)
+            )
+            * delta_kl_weight
+        )
 
         # Adversarial loss, summing reduction results in one number
         adv_loss = torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], label)
