@@ -124,9 +124,14 @@ def get_posterior_z_and_trained_decoder(
     x_mg = x_ng[:n_latent, :]
     x_mean_mg = x_mg.mean(dim=0)
     x_centered_mg = x_mg - x_mean_mg
-    decoder = torch.nn.Linear(in_features=n_latent, out_features=n_genes, bias=True)
-    decoder.weight = torch.nn.Parameter(torch.linalg.solve(z_mm, x_centered_mg).t())
-    decoder.bias = torch.nn.Parameter(x_mean_mg)
+    linear_layer = torch.nn.Linear(
+        in_features=n_latent, out_features=n_genes, bias=True
+    )
+    linear_layer.weight = torch.nn.Parameter(
+        torch.linalg.solve(z_mm, x_centered_mg).t()
+    )
+    linear_layer.bias = torch.nn.Parameter(x_mean_mg)
+    decoder = torch.nn.Sequential(linear_layer, torch.nn.Softplus())
 
     return z_nm, decoder, adata.var
 
@@ -369,7 +374,8 @@ def simulate_data_from_real_data(
     )
 
     # gene expression
-    x_ng = decoder(z_nm).detach()
+    rate_x_ng = decoder(z_nm).detach()
+    x_ng = torch.distributions.Poisson(rate=rate_x_ng).sample()
 
     # put everything in adata
     adata_sim = anndata.AnnData(
