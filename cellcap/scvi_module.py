@@ -6,7 +6,6 @@ import pandas as pd
 from anndata import AnnData
 
 import torch
-import torch.nn.functional as F
 
 from scvi import REGISTRY_KEYS
 from scvi._compat import Literal
@@ -23,7 +22,7 @@ from scvi.model.base import (
 from scvi.data import AnnDataManager
 from scvi.utils import setup_anndata_dsp
 from scvi.data.fields import (
-    # CategoricalObsField,
+    CategoricalObsField,
     LayerField,
     ObsmField,
 )
@@ -32,12 +31,10 @@ from typing import Optional, Union
 
 from scvi.train._trainingplans import TrainingPlan
 
-# from .training_plan import FactorTrainingPlanA
-from .model import CellCapModel
+from .modelv1_0_3 import CellCapModel
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
-
 
 class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def __init__(
@@ -48,7 +45,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         n_layers: int = 1,
         dropout_rate: float = 0.1,
         dispersion: Literal["gene", "gene-label", "gene-cell"] = "gene",
-        gene_likelihood: Literal["zinb", "nb", "poisson"] = "nb",
         latent_distribution: Literal["normal", "ln"] = "normal",
         use_batch_norm: bool = True,
         **model_kwargs,
@@ -61,21 +57,19 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             n_layers_encoder=n_layers,
             dropout_rate=dropout_rate,
             dispersion=dispersion,
-            gene_likelihood=gene_likelihood,
             latent_distribution=latent_distribution,
             **model_kwargs,
         )
         self._model_summary_string = (
             "CellCap Model with the following params: \n"
             "n_hidden: {}, n_latent: {}, n_layers: {}, dropout_rate: "
-            "{}, dispersion: {}, gene_likelihood: {}, latent_distribution: {}"
+            "{}, dispersion: {}, latent_distribution: {}" # gene_likelihood: {},
         ).format(
             n_hidden,
             n_latent,
             n_layers,
             dropout_rate,
             dispersion,
-            gene_likelihood,
             latent_distribution,
         )
 
@@ -97,29 +91,44 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         else:
             loadings = self.module.decoder.factor_regressor.fc_layers[0][0].weight
         loadings = loadings.detach().cpu().numpy()
-        if self.module.n_batch > 1:
-            loadings = loadings[:, : -self.module.n_batch]
 
         return loadings
 
     def get_pert_loadings(self) -> pd.DataFrame:
-        w = F.normalize(self.module.w_qk, p=2, dim=1)
+
+        w = torch.matmul(self.module.H_pq.sigmoid(), self.module.w_qk)
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
-    def get_ard_loadings(self) -> pd.DataFrame:
-        w = self.module.alpha_pq
+    def get_resp_loadings(self) -> pd.DataFrame:
+
+        w = self.module.w_qk
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_donor_loadings(self) -> pd.DataFrame:
-        w = F.normalize(self.module.w_donor_dk, p=2, dim=1)
+
+        w = self.module.w_donor_dk
         loadings = torch.Tensor.cpu(w).detach().numpy()
         loadings = pd.DataFrame(loadings.T)
 
         return loadings
+
+    def get_h(self) -> pd.DataFrame:
+
+        w = self.module.H_pq.sigmoid()
+        w = torch.Tensor.cpu(w).detach().numpy()
+
+        return w
+
+    def get_ard(self) -> pd.DataFrame:
+
+        w = self.module.log_alpha_pq.sigmoid()
+        w = torch.Tensor.cpu(w).detach().numpy()
+
+        return w
 
     @torch.no_grad()
     def get_latent_embedding(
@@ -152,14 +161,21 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(adata=adata, batch_size=batch_size)
         embedding = []
-        # atts = []
+        h = []
+        attn = []
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
             delta_z = outputs["delta_z"]
             embedding += [delta_z.cpu()]
 
-        return np.array(torch.cat(embedding))
+            H_m = outputs["H_attn"]
+            h += [H_m.cpu()]
+
+            a = outputs["attn"]
+            attn += [a.cpu()]
+
+        return np.array(torch.cat(embedding)), np.array(torch.cat(h)), np.array(torch.cat(attn))
 
     @torch.no_grad()
     def get_donor_embedding(
@@ -226,7 +242,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def train(
         self,
         max_epochs: int = 500,
-        lr: float = 1e-4,
+        lr: float = 1e-3,
         use_gpu: Optional[Union[str, int, bool]] = None,
         train_size: float = 0.9,
         validation_size: Optional[float] = None,
@@ -270,9 +286,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         )
 
         training_plan = TrainingPlan(self.module, **plan_kwargs)
-        # training_plan = FactorTrainingPlanA(
-        #     self.module, discriminator=True, scale_tc_loss=1.0, **plan_kwargs
-        # )
 
         runner = TrainRunner(
             self,
@@ -304,11 +317,8 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         Parameters
         ----------
         %(param_layer)s
-        %(param_batch_key)s
-        %(param_labels_key)s
-        %(param_size_factor_key)s
-        %(param_cat_cov_keys)s
-        %(param_cont_cov_keys)s
+        %(param_target_key)s
+        %(param_donor_key)s
         """
         setup_method_args = cls._get_setup_method_args(**locals())
         anndata_fields = [
