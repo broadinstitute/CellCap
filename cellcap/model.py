@@ -9,15 +9,14 @@ from torch.distributions import kl_divergence as kl
 
 from scvi import REGISTRY_KEYS
 from scvi._compat import Literal
-from scvi.nn import Encoder, LinearDecoderSCVI, one_hot
+from scvi.nn import Encoder, one_hot
 from scvi.module.base import BaseModuleClass, LossOutput, auto_move_data
-from scvi.distributions import ZeroInflatedNegativeBinomial, NegativeBinomial
+from scvi.distributions import NegativeBinomial
 
+from typing import Dict
 from .mixins import CellCapMixin
 from .nn.advclassifier import AdvNet
-from typing import Dict
-
-# from .utils import entropy
+from .nn.decoder import LinearDecoderSCVI
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
@@ -25,24 +24,26 @@ logger = logging.getLogger(__name__)
 
 class CellCapModel(BaseModuleClass, CellCapMixin):
     def __init__(
-        self,
-        n_input: int,
-        n_labels: int = 0,
-        n_hidden: int = 128,
-        n_latent: int = 10,
-        n_drug: int = 3,
-        n_prog: int = 5,
-        n_donor: int = 5,
-        n_layers_encoder: int = 1,
-        dropout_rate: float = 0.1,
-        dispersion: str = "gene",
-        log_variational: bool = True,
-        gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb",
-        latent_distribution: str = "normal",
-        encode_covariates: bool = False,
-        deeply_inject_covariates: bool = True,
-        use_batch_norm: Literal["encoder", "decoder", "none", "both"] = "both",
-        bias: bool = False,
+            self,
+            n_input: int,
+            n_labels: int = 0,
+            n_hidden: int = 128,
+            n_latent: int = 10,
+            n_drug: int = 3,
+            n_prog: int = 5,
+            n_donor: int = 5,
+            n_layers_encoder: int = 1,
+            n_head: int = 1,
+            temp=1.0,
+            dropout_rate: float = 0.1,
+            dispersion: str = "gene",
+            log_variational: bool = True,
+            gene_likelihood: Literal["nb", "poisson"] = "nb",
+            latent_distribution: str = "normal",
+            encode_covariates: bool = False,
+            deeply_inject_covariates: bool = True,
+            use_batch_norm: Literal["encoder", "decoder", "none", "both"] = "both",
+            bias: bool = False,
     ):
         super().__init__()
         self.dispersion = dispersion
@@ -55,6 +56,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         self.n_drug = n_drug
         self.n_prog = n_prog
         self.n_donor = n_donor
+        self.n_head = n_head
+        self.temp = temp
 
         if self.dispersion == "gene":
             self.px_r = torch.nn.Parameter(torch.randn(n_input))
@@ -74,11 +77,11 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # k stands for the dimension of latent space
         # d stands for the number of donors
 
-        self.log_alpha_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
         self.H_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
         self.w_qk = torch.nn.Parameter(torch.rand(n_prog, n_latent))
+        self.log_alpha_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
+        self.H_key = torch.nn.Parameter(torch.rand(n_drug, n_prog, n_latent, n_head))
         self.w_donor_dk = torch.nn.Parameter(torch.zeros(n_donor, n_latent))
-        self.H_key = torch.nn.Parameter(torch.rand(n_drug, n_prog, n_latent))
 
         self.z_encoder = Encoder(
             n_input,
@@ -101,10 +104,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             bias=bias,
         )
 
-        self.classifier = AdvNet(
-            in_feature=n_latent,
-            hidden_size=128,
-            out_dim=self.n_drug,
+        self.discriminator = AdvNet(
+            in_feature=self.n_latent, hidden_size=128, out_dim=self.n_drug
         )
 
     def _get_inference_input(self, tensors):
@@ -120,10 +121,10 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         return input_dict
 
     def _get_generative_input(self, tensors, inference_outputs):
+        library = inference_outputs["library"]
         z_basal = inference_outputs["z_basal"]
         delta_z = inference_outputs["delta_z"]
         delta_z_donor = inference_outputs["delta_z_donor"]
-        library = inference_outputs["library"]
 
         input_dict = dict(
             z_basal=z_basal,
@@ -146,12 +147,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             x_ = torch.log(1 + x_)
         encoder_input = x_
 
-        qz_m, qz_v, z_basal = self.z_encoder(encoder_input)
-
         h = torch.matmul(p, self.H_pq.sigmoid())
-
+        qz_m, qz_v, z_basal = self.z_encoder(encoder_input)
         delta_z_donor = torch.matmul(donor, self.w_donor_dk)
-
         alpha_ip = torch.matmul(p, self.log_alpha_pq).sigmoid()
 
         if n_samples > 1:
@@ -164,19 +162,24 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             )
 
         # Attention
-        key = torch.matmul(p, self.H_key.reshape((self.n_drug, self.n_prog * self.n_latent)))
+        key = torch.matmul(p, self.H_key[:, :, :, 0].reshape((self.n_drug, self.n_prog * self.n_latent)))
         key = key.reshape((p.size(0), self.n_prog, self.n_latent))
         score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
         score = score.view(-1, self.n_prog)
-        attn = F.softmax(score, dim=1)
+        attn = F.softmax(score / self.temp, dim=1)
         H_attn = attn * h
+        for i in range(1, self.n_head):
+            key = torch.matmul(p_v, self.H_key[:, :, :, i].reshape((self.n_drug, self.n_prog * self.n_latent)))
+            key = key.reshape((p_v.size(0), self.n_prog, self.n_latent))
+            score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
+            score = score.view(-1, self.n_prog)
+            a = F.softmax(score / self.temp, dim=1)
+            H_attn += a * h
 
-        delta_z = torch.matmul(H_attn, F.normalize(self.w_qk, p=2, dim=1))
+        H_attn = H_attn / self.n_head
 
-        prob = self.classifier(z_basal)
-
-        z_basal = F.normalize(z_basal, p=2, dim=1)
-        delta_z_donor = F.normalize(delta_z_donor, p=2, dim=1)
+        prob = self.discriminator(z_basal)
+        delta_z = torch.matmul(H_attn, self.w_qk)
 
         outputs = dict(
             z_basal=z_basal,
@@ -191,16 +194,14 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             attn=attn,
             H_attn=H_attn,
             alpha_pq=self.log_alpha_pq.detach().sigmoid(),
-            # h_pq=self.H_pq.detach().sigmoid(),
         )
         return outputs
 
     @auto_move_data
-    def generative(
-        self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None
-    ):
+    def generative(self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None):
         """Runs the generative model."""
         # Likelihood distribution
+
         z = z_basal + delta_z + delta_z_donor
         decoder_input = z
 
@@ -208,7 +209,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         categorical_input = tuple()
         size_factor = library
 
-        px_scale, px_r, px_rate, px_dropout = self.decoder(
+        px_scale, px_r, px_rate = self.decoder(
             self.dispersion,
             decoder_input,
             size_factor,
@@ -223,13 +224,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
 
         px_r = torch.exp(px_r)
 
-        if self.gene_likelihood == "zinb":
-            px = ZeroInflatedNegativeBinomial(
-                mu=px_rate,
-                theta=px_r,
-                zi_logits=px_dropout,
-            )
-        elif self.gene_likelihood == "nb":
+        if self.gene_likelihood == "nb":
             px = NegativeBinomial(mu=px_rate, theta=px_r)
         elif self.gene_likelihood == "poisson":
             px = Poisson(px_rate)
@@ -244,14 +239,13 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         tensors,
         inference_outputs,
         generative_outputs,
-        kl_weight: float = 0.2,
-        h_kl_weight: float = 0.2,
-        delta_kl_weight: float = 0.2,
+        kl_weight: float = 1.0,
+        h_kl_weight: float = 1.0,
         rec_weight: float = 1.0,
-        lamda: float = 1.0,  # coefficient of adversarial loss
+        lamda: float = 1.0,
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
-        label = tensors["TARGET_KEY"]
+        l = tensors["TARGET_KEY"]
 
         qz_m = inference_outputs["qz_m"]
         qz_v = inference_outputs["qz_v"]
@@ -259,10 +253,10 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         mean = torch.zeros_like(qz_m)
         scale = torch.ones_like(qz_v)
 
-        # reconstruction loss, dimension of minibatch
-        rec_loss = -generative_outputs["px"].log_prob(x).sum(-1)
+        # reconstruction loss
+        rec_loss = -generative_outputs["px"].log_prob(x).sum(-1) * rec_weight
 
-        # KL divergence for z_basal, dimension of minibatch
+        # KL divergence
         kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)),
                              Normal(mean, scale)).sum(
             dim=1
@@ -272,31 +266,29 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             Normal(loc=0.0, scale=inference_outputs["alpha_ip"])
             .log_prob(inference_outputs["H_attn"])
             .sum(-1)
-        ) * h_kl_weight
+        )
 
-        kl_divergence_delta = -1 * (
-            Normal(loc=0.0, scale=1.0)
-            .log_prob(inference_outputs["delta_z"])
-            .sum(-1)
-        ) * delta_kl_weight
+        weighted_kl_local = (
+                kl_weight * kl_divergence_z
+                + h_kl_weight * kl_divergence_h
+        )
 
-        # Adversarial loss, summing reduction results in one number
-        adv_loss = torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], label)
+        adv_loss = torch.nn.BCELoss(reduction='sum')(inference_outputs["prob"], l) * lamda
 
         loss = (
-            torch.mean(
-                rec_loss + kl_divergence_z + kl_divergence_h + kl_divergence_delta,
-            )
-            + lamda * adv_loss
+                torch.mean(
+                    rec_loss + weighted_kl_local
+                )
+                + adv_loss
         )
 
-        # keep track of these local (per-cell) KL divergences for logging
         kl_local = dict(
-            kl_divergence_z_basal=kl_divergence_z,
-            kl_divergence_delta_z=kl_divergence_delta,
+            kl_divergence_z=kl_divergence_z,
+            kl_divergence_h=kl_divergence_h,
         )
+        kl_global = torch.tensor(0.0)
 
-        # define extra metrics for logging
+        # extra metrics for logging
         extra_metrics = {
             "adv_loss": adv_loss,
             "kl_divergence_h_mean": kl_divergence_h.mean(),
