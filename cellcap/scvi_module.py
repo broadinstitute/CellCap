@@ -31,7 +31,7 @@ from typing import Optional, Union
 
 from scvi.train._trainingplans import TrainingPlan
 
-from .modelv1_0_3 import CellCapModel
+from .model import CellCapModel
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
