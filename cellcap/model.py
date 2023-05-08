@@ -10,8 +10,8 @@ from torch.distributions import kl_divergence as kl
 from scvi import REGISTRY_KEYS
 from scvi._compat import Literal
 from scvi.nn import Encoder, one_hot
-from scvi.module.base import BaseModuleClass, LossOutput, auto_move_data
 from scvi.distributions import NegativeBinomial
+from scvi.module.base import BaseModuleClass, LossOutput, auto_move_data
 
 from typing import Dict
 from .mixins import CellCapMixin
@@ -24,26 +24,25 @@ logger = logging.getLogger(__name__)
 
 class CellCapModel(BaseModuleClass, CellCapMixin):
     def __init__(
-            self,
-            n_input: int,
-            n_labels: int = 0,
-            n_hidden: int = 128,
-            n_latent: int = 10,
-            n_drug: int = 3,
-            n_prog: int = 5,
-            n_donor: int = 5,
-            n_layers_encoder: int = 1,
-            n_head: int = 1,
-            temp=1.0,
-            dropout_rate: float = 0.1,
-            dispersion: str = "gene",
-            log_variational: bool = True,
-            gene_likelihood: Literal["nb", "poisson"] = "nb",
-            latent_distribution: str = "normal",
-            encode_covariates: bool = False,
-            deeply_inject_covariates: bool = True,
-            use_batch_norm: Literal["encoder", "decoder", "none", "both"] = "both",
-            bias: bool = False,
+        self,
+        n_input: int,
+        n_labels: int = 0,
+        n_hidden: int = 128,
+        n_latent: int = 10,
+        n_drug: int = 3,
+        n_prog: int = 5,
+        n_donor: int = 5,
+        n_layers_encoder: int = 1,
+        n_head: int = 1,
+        dropout_rate: float = 0.1,
+        dispersion: str = "gene",
+        log_variational: bool = True,
+        gene_likelihood: Literal["nb", "poisson"] = "nb",
+        latent_distribution: str = "normal",
+        encode_covariates: bool = False,
+        deeply_inject_covariates: bool = True,
+        use_batch_norm: Literal["encoder", "decoder", "none", "both"] = "both",
+        bias: bool = False,
     ):
         super().__init__()
         self.dispersion = dispersion
@@ -57,7 +56,6 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         self.n_prog = n_prog
         self.n_donor = n_donor
         self.n_head = n_head
-        self.temp = temp
 
         if self.dispersion == "gene":
             self.px_r = torch.nn.Parameter(torch.randn(n_input))
@@ -166,17 +164,16 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         key = key.reshape((p.size(0), self.n_prog, self.n_latent))
         score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
         score = score.view(-1, self.n_prog)
-        attn = F.softmax(score / self.temp, dim=1)
-        H_attn = attn * h
+        attn = F.softmax(score, dim=1)
         for i in range(1, self.n_head):
             key = torch.matmul(p_v, self.H_key[:, :, :, i].reshape((self.n_drug, self.n_prog * self.n_latent)))
             key = key.reshape((p_v.size(0), self.n_prog, self.n_latent))
             score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
             score = score.view(-1, self.n_prog)
-            a = F.softmax(score / self.temp, dim=1)
-            H_attn += a * h
-
-        H_attn = H_attn / self.n_head
+            a = F.softmax(score, dim=1)
+            attn = attn + a
+        attn = attn / self.n_head
+        H_attn += attn * h
 
         prob = self.discriminator(z_basal)
         delta_z = torch.matmul(H_attn, self.w_qk)
