@@ -42,6 +42,25 @@ def basic_run(
 ):
     """Basic run through of user-facing functionality"""
 
+    model = setup_model(adata, setup_adata_kwargs, adata_kwargs, n_latent, verbose=verbose)
+    model.train(
+        max_epochs=n_epochs, check_val_every_n_epoch=1, train_size=0.5, use_gpu=cuda
+    )
+    if verbose:
+        print(model.history)
+
+    # tests __repr__
+    if verbose:
+        print(model)
+
+    return model
+
+
+def setup_model(
+    adata, setup_adata_kwargs, adata_kwargs, n_latent, verbose=False
+):
+    """Set up the CellCap model"""
+
     CellCap.setup_anndata(
         adata,
         **setup_adata_kwargs,
@@ -53,14 +72,4 @@ def basic_run(
         n_latent=n_latent,
         **adata_kwargs,
     )
-    model.train(
-        max_epochs=n_epochs, check_val_every_n_epoch=1, train_size=0.5, use_gpu=cuda
-    )
-    if verbose:
-        print(model.history)
-
-    # tests __repr__
-    if verbose:
-        print(model)
-
     return model
