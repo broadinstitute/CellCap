@@ -8,7 +8,6 @@ from anndata import AnnData
 import torch
 
 from scvi import REGISTRY_KEYS
-from scvi._compat import Literal
 from scvi.train import TrainRunner
 from scvi.dataloaders import DataSplitter
 from scvi.train._callbacks import SaveBestState
@@ -27,7 +26,7 @@ from scvi.data.fields import (
     ObsmField,
 )
 
-from typing import Optional, Union
+from typing import Optional, Union, Literal
 
 from scvi.train._trainingplans import TrainingPlan
 
@@ -35,6 +34,7 @@ from .model import CellCapModel
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
+
 
 class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def __init__(
@@ -317,14 +317,15 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         Parameters
         ----------
         %(param_layer)s
-        %(param_target_key)s
-        %(param_donor_key)s
+        target_key: Key for adata.obsm containing a one-hot encoding of
+            perturbation information
+        donor_key: Key for adata.obsm containing a one-hot encoding of donor
         """
         setup_method_args = cls._get_setup_method_args(**locals())
         anndata_fields = [
             LayerField(REGISTRY_KEYS.X_KEY, layer, is_count_data=True),
-            ObsmField(registry_key="TARGET_KEY", obsm_key=target_key),
-            ObsmField(registry_key="DONOR_KEY", obsm_key=donor_key),
+            ObsmField(registry_key="TARGET_KEY", attr_key=target_key),
+            ObsmField(registry_key="DONOR_KEY", attr_key=donor_key),
         ]
         adata_manager = AnnDataManager(
             fields=anndata_fields, setup_method_args=setup_method_args
