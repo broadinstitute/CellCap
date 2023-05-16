@@ -37,7 +37,6 @@ def test_save_and_load(small_real_dataset, n_latent, n_epochs, cuda):
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-
         dirname = os.path.join(tmpdir, "saved_models")
 
         # save the model

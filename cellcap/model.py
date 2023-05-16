@@ -159,13 +159,21 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             )
 
         # Attention
-        key = torch.matmul(p, self.H_key[:, :, :, 0].reshape((self.n_drug, self.n_prog * self.n_latent)))
+        key = torch.matmul(
+            p,
+            self.H_key[:, :, :, 0].reshape((self.n_drug, self.n_prog * self.n_latent)),
+        )
         key = key.reshape((p.size(0), self.n_prog, self.n_latent))
         score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
         score = score.view(-1, self.n_prog)
         attn = F.softmax(score, dim=1)
         for i in range(1, self.n_head):
-            key = torch.matmul(p, self.H_key[:, :, :, i].reshape((self.n_drug, self.n_prog * self.n_latent)))
+            key = torch.matmul(
+                p,
+                self.H_key[:, :, :, i].reshape(
+                    (self.n_drug, self.n_prog * self.n_latent)
+                ),
+            )
             key = key.reshape((p.size(0), self.n_prog, self.n_latent))
             score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
             score = score.view(-1, self.n_prog)
@@ -194,7 +202,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         return outputs
 
     @auto_move_data
-    def generative(self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None):
+    def generative(
+        self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None
+    ):
         """Runs the generative model."""
         # Likelihood distribution
 
@@ -253,8 +263,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         rec_loss = -generative_outputs["px"].log_prob(x).sum(-1) * rec_weight
 
         # KL divergence
-        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)),
-                             Normal(mean, scale)).sum(
+        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
             dim=1
         )
 
@@ -264,19 +273,13 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             .sum(-1)
         )
 
-        weighted_kl_local = (
-                kl_weight * kl_divergence_z
-                + h_kl_weight * kl_divergence_h
+        weighted_kl_local = kl_weight * kl_divergence_z + h_kl_weight * kl_divergence_h
+
+        adv_loss = (
+            torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], l) * lamda
         )
 
-        adv_loss = torch.nn.BCELoss(reduction='sum')(inference_outputs["prob"], l) * lamda
-
-        loss = (
-                torch.mean(
-                    rec_loss + weighted_kl_local
-                )
-                + adv_loss
-        )
+        loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss
 
         kl_local = dict(
             kl_divergence_z=kl_divergence_z,
