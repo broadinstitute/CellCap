@@ -44,7 +44,7 @@ setuptools.setup(
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Science/Research"
         "License :: OSI Approved :: BSD License",
-        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.9",
         "Topic :: Scientific/Engineering :: Bio-Informatics",
     ],
     keywords="scRNA-seq bioinformatics",
