@@ -8,12 +8,11 @@ from torch.distributions import Normal, Poisson
 from torch.distributions import kl_divergence as kl
 
 from scvi import REGISTRY_KEYS
-from scvi._compat import Literal
 from scvi.nn import Encoder, one_hot
 from scvi.distributions import NegativeBinomial
 from scvi.module.base import BaseModuleClass, LossOutput, auto_move_data
 
-from typing import Dict
+from typing import Dict, Literal
 from .mixins import CellCapMixin
 from .nn.advclassifier import AdvNet
 from .nn.decoder import LinearDecoderSCVI
@@ -166,14 +165,14 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         score = score.view(-1, self.n_prog)
         attn = F.softmax(score, dim=1)
         for i in range(1, self.n_head):
-            key = torch.matmul(p_v, self.H_key[:, :, :, i].reshape((self.n_drug, self.n_prog * self.n_latent)))
-            key = key.reshape((p_v.size(0), self.n_prog, self.n_latent))
+            key = torch.matmul(p, self.H_key[:, :, :, i].reshape((self.n_drug, self.n_prog * self.n_latent)))
+            key = key.reshape((p.size(0), self.n_prog, self.n_latent))
             score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
             score = score.view(-1, self.n_prog)
             a = F.softmax(score, dim=1)
             attn = attn + a
         attn = attn / self.n_head
-        H_attn += attn * h
+        H_attn = attn * h
 
         prob = self.discriminator(z_basal)
         delta_z = torch.matmul(H_attn, self.w_qk)
