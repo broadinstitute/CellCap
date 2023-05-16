@@ -21,7 +21,7 @@ from scvi.model.base import (
 from scvi.data import AnnDataManager
 from scvi.utils import setup_anndata_dsp
 from scvi.data.fields import (
-    CategoricalObsField,
+    # CategoricalObsField,
     LayerField,
     ObsmField,
 )

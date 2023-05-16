@@ -251,7 +251,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         lamda: float = 1.0,
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
-        l = tensors["TARGET_KEY"]
+        perturbations = tensors["TARGET_KEY"]
 
         qz_m = inference_outputs["qz_m"]
         qz_v = inference_outputs["qz_v"]
@@ -276,7 +276,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         weighted_kl_local = kl_weight * kl_divergence_z + h_kl_weight * kl_divergence_h
 
         adv_loss = (
-            torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], l) * lamda
+            torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], perturbations)
+            * lamda
         )
 
         loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss
@@ -285,7 +286,6 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             kl_divergence_z=kl_divergence_z,
             kl_divergence_h=kl_divergence_h,
         )
-        kl_global = torch.tensor(0.0)
 
         # extra metrics for logging
         extra_metrics = {
