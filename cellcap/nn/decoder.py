@@ -3,7 +3,8 @@ from torch import nn
 
 from scvi.nn import FCLayers
 
-from typing import Callable, Iterable, List, Literal, Optional
+from typing import Iterable
+
 
 class LinearDecoderSCVI(nn.Module):
     """Linear decoder for scVI."""
