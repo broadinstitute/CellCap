@@ -8,7 +8,6 @@ from anndata import AnnData
 import torch
 
 from scvi import REGISTRY_KEYS
-from scvi._compat import Literal
 from scvi.train import TrainRunner
 from scvi.dataloaders import DataSplitter
 from scvi.train._callbacks import SaveBestState
@@ -22,12 +21,12 @@ from scvi.model.base import (
 from scvi.data import AnnDataManager
 from scvi.utils import setup_anndata_dsp
 from scvi.data.fields import (
-    CategoricalObsField,
+    # CategoricalObsField,
     LayerField,
     ObsmField,
 )
 
-from typing import Optional, Union
+from typing import Optional, Union, Literal
 
 from scvi.train._trainingplans import TrainingPlan
 
@@ -35,6 +34,7 @@ from .model import CellCapModel
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
+
 
 class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def __init__(
@@ -63,7 +63,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         self._model_summary_string = (
             "CellCap Model with the following params: \n"
             "n_hidden: {}, n_latent: {}, n_layers: {}, dropout_rate: "
-            "{}, dispersion: {}, latent_distribution: {}" # gene_likelihood: {},
+            "{}, dispersion: {}, latent_distribution: {}"  # gene_likelihood: {},
         ).format(
             n_hidden,
             n_latent,
@@ -95,21 +95,18 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return loadings
 
     def get_pert_loadings(self) -> pd.DataFrame:
-
         w = torch.matmul(self.module.H_pq.sigmoid(), self.module.w_qk)
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_resp_loadings(self) -> pd.DataFrame:
-
         w = self.module.w_qk
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_donor_loadings(self) -> pd.DataFrame:
-
         w = self.module.w_donor_dk
         loadings = torch.Tensor.cpu(w).detach().numpy()
         loadings = pd.DataFrame(loadings.T)
@@ -117,14 +114,12 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return loadings
 
     def get_h(self) -> pd.DataFrame:
-
         w = self.module.H_pq.sigmoid()
         w = torch.Tensor.cpu(w).detach().numpy()
 
         return w
 
     def get_ard(self) -> pd.DataFrame:
-
         w = self.module.log_alpha_pq.sigmoid()
         w = torch.Tensor.cpu(w).detach().numpy()
 
@@ -175,7 +170,11 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             a = outputs["attn"]
             attn += [a.cpu()]
 
-        return np.array(torch.cat(embedding)), np.array(torch.cat(h)), np.array(torch.cat(attn))
+        return (
+            np.array(torch.cat(embedding)),
+            np.array(torch.cat(h)),
+            np.array(torch.cat(attn)),
+        )
 
     @torch.no_grad()
     def get_donor_embedding(
@@ -317,14 +316,15 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         Parameters
         ----------
         %(param_layer)s
-        %(param_target_key)s
-        %(param_donor_key)s
+        target_key: Key for adata.obsm containing a one-hot encoding of
+            perturbation information
+        donor_key: Key for adata.obsm containing a one-hot encoding of donor
         """
         setup_method_args = cls._get_setup_method_args(**locals())
         anndata_fields = [
             LayerField(REGISTRY_KEYS.X_KEY, layer, is_count_data=True),
-            ObsmField(registry_key="TARGET_KEY", obsm_key=target_key),
-            ObsmField(registry_key="DONOR_KEY", obsm_key=donor_key),
+            ObsmField(registry_key="TARGET_KEY", attr_key=target_key),
+            ObsmField(registry_key="DONOR_KEY", attr_key=donor_key),
         ]
         adata_manager = AnnDataManager(
             fields=anndata_fields, setup_method_args=setup_method_args

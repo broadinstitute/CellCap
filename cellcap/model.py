@@ -8,12 +8,11 @@ from torch.distributions import Normal, Poisson
 from torch.distributions import kl_divergence as kl
 
 from scvi import REGISTRY_KEYS
-from scvi._compat import Literal
 from scvi.nn import Encoder, one_hot
 from scvi.distributions import NegativeBinomial
 from scvi.module.base import BaseModuleClass, LossOutput, auto_move_data
 
-from typing import Dict
+from typing import Dict, Literal
 from .mixins import CellCapMixin
 from .nn.advclassifier import AdvNet
 from .nn.decoder import LinearDecoderSCVI
@@ -160,20 +159,28 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             )
 
         # Attention
-        key = torch.matmul(p, self.H_key[:, :, :, 0].reshape((self.n_drug, self.n_prog * self.n_latent)))
+        key = torch.matmul(
+            p,
+            self.H_key[:, :, :, 0].reshape((self.n_drug, self.n_prog * self.n_latent)),
+        )
         key = key.reshape((p.size(0), self.n_prog, self.n_latent))
         score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
         score = score.view(-1, self.n_prog)
         attn = F.softmax(score, dim=1)
         for i in range(1, self.n_head):
-            key = torch.matmul(p_v, self.H_key[:, :, :, i].reshape((self.n_drug, self.n_prog * self.n_latent)))
-            key = key.reshape((p_v.size(0), self.n_prog, self.n_latent))
+            key = torch.matmul(
+                p,
+                self.H_key[:, :, :, i].reshape(
+                    (self.n_drug, self.n_prog * self.n_latent)
+                ),
+            )
+            key = key.reshape((p.size(0), self.n_prog, self.n_latent))
             score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
             score = score.view(-1, self.n_prog)
             a = F.softmax(score, dim=1)
             attn = attn + a
         attn = attn / self.n_head
-        H_attn += attn * h
+        H_attn = attn * h
 
         prob = self.discriminator(z_basal)
         delta_z = torch.matmul(H_attn, self.w_qk)
@@ -195,7 +202,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         return outputs
 
     @auto_move_data
-    def generative(self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None):
+    def generative(
+        self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None
+    ):
         """Runs the generative model."""
         # Likelihood distribution
 
@@ -242,7 +251,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         lamda: float = 1.0,
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
-        l = tensors["TARGET_KEY"]
+        perturbations = tensors["TARGET_KEY"]
 
         qz_m = inference_outputs["qz_m"]
         qz_v = inference_outputs["qz_v"]
@@ -254,8 +263,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         rec_loss = -generative_outputs["px"].log_prob(x).sum(-1) * rec_weight
 
         # KL divergence
-        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)),
-                             Normal(mean, scale)).sum(
+        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
             dim=1
         )
 
@@ -265,25 +273,19 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             .sum(-1)
         )
 
-        weighted_kl_local = (
-                kl_weight * kl_divergence_z
-                + h_kl_weight * kl_divergence_h
+        weighted_kl_local = kl_weight * kl_divergence_z + h_kl_weight * kl_divergence_h
+
+        adv_loss = (
+            torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], perturbations)
+            * lamda
         )
 
-        adv_loss = torch.nn.BCELoss(reduction='sum')(inference_outputs["prob"], l) * lamda
-
-        loss = (
-                torch.mean(
-                    rec_loss + weighted_kl_local
-                )
-                + adv_loss
-        )
+        loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss
 
         kl_local = dict(
             kl_divergence_z=kl_divergence_z,
             kl_divergence_h=kl_divergence_h,
         )
-        kl_global = torch.tensor(0.0)
 
         # extra metrics for logging
         extra_metrics = {
