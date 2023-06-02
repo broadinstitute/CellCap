@@ -46,11 +46,8 @@ def off_diagonal(x):
 
 
 def cal_off_diagonal_corr(z):
-    c = z[0, :, :].T @ z[0, :, :]
+    c = torch.matmul(z, z.T)
     off_diag = off_diagonal(c).pow_(2).sum()
-    for i in range(1, z.shape[0]):
-        c = z[i, :, :].T @ z[i, :, :]
-        off_diag += off_diagonal(c).pow_(2).sum()
     return off_diag
 
 
