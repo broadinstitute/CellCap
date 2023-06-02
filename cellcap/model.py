@@ -15,7 +15,9 @@ from scvi.module.base import BaseModuleClass, LossOutput, auto_move_data
 from typing import Dict, Literal
 from .mixins import CellCapMixin
 from .nn.advclassifier import AdvNet
+from .utils import cal_off_diagonal_corr
 from .nn.decoder import LinearDecoderSCVI
+
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
@@ -75,10 +77,10 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # d stands for the number of donors
 
         self.H_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
-        self.w_qk = torch.nn.Parameter(torch.rand(n_prog, n_latent))
-        self.log_alpha_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
-        self.H_key = torch.nn.Parameter(torch.rand(n_drug, n_prog, n_latent, n_head))
-        self.w_donor_dk = torch.nn.Parameter(torch.zeros(n_donor, n_latent))
+        self.w_qk = torch.nn.Parameter(torch.randn(n_prog, n_latent))
+        self.log_alpha_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
+        self.w_donor_dk = torch.nn.Parameter(torch.randn(n_donor, n_latent))
+        self.H_key = torch.nn.Parameter(torch.randn(n_drug, n_prog, n_latent, n_head))
 
         self.z_encoder = Encoder(
             n_input,
@@ -179,7 +181,6 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             score = score.view(-1, self.n_prog)
             a = F.softmax(score, dim=1)
             attn = attn + a
-        attn = attn / self.n_head
         H_attn = attn * h
 
         prob = self.discriminator(z_basal)
@@ -279,8 +280,11 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], perturbations)
             * lamda
         )
+        cor_penalty = cal_off_diagonal_corr(
+            F.normalize(self.w_qk, p=2, dim=1)
+        ) * 1e-4
 
-        loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss
+        loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss + cor_penalty
 
         kl_local = dict(
             kl_divergence_z=kl_divergence_z,
