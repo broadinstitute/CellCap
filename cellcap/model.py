@@ -15,7 +15,6 @@ from scvi.module.base import BaseModuleClass, LossOutput, auto_move_data
 from typing import Dict, Literal
 from .mixins import CellCapMixin
 from .nn.advclassifier import AdvNet
-from .utils import cal_off_diagonal_corr
 from .nn.decoder import LinearDecoderSCVI
 
 
@@ -280,11 +279,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], perturbations)
             * lamda
         )
-        cor_penalty = cal_off_diagonal_corr(
-            F.normalize(self.w_qk, p=2, dim=1)
-        ) * 1e-4
-
-        loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss + cor_penalty
+        
+        loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss
 
         kl_local = dict(
             kl_divergence_z=kl_divergence_z,
