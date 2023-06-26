@@ -6,6 +6,7 @@ import pandas as pd
 from anndata import AnnData
 
 import torch
+import torch.nn.functional as F
 
 from scvi import REGISTRY_KEYS
 from scvi.train import TrainRunner
@@ -25,11 +26,9 @@ from scvi.data.fields import (
     ObsmField,
 )
 
-from typing import Optional, Union, Literal
-
-from scvi.train._trainingplans import TrainingPlan
-
 from .model import CellCapModel
+from typing import Optional, Union, Literal
+from scvi.train._trainingplans import TrainingPlan
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
@@ -42,7 +41,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         n_hidden: int = 128,
         n_latent: int = 10,
         n_layers: int = 1,
-        dropout_rate: float = 0.1,
+        dropout_rate: float = 0.25,
         dispersion: Literal["gene", "gene-label", "gene-cell"] = "gene",
         latent_distribution: Literal["normal", "ln"] = "normal",
         use_batch_norm: bool = True,
@@ -117,6 +116,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     def get_h(self) -> pd.DataFrame:
 
+        w = F.softplus(self.module.H_pq)
         w = self.module.H_pq.sigmoid()
         w = torch.Tensor.cpu(w).detach().numpy()
 
@@ -250,7 +250,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         train_size: float = 0.9,
         validation_size: Optional[float] = None,
         batch_size: int = 128,
-        weight_decay: float = 1e-3,
+        weight_decay: float = 1e-5,
         eps: float = 1e-08,
         early_stopping: bool = True,
         save_best: bool = True,
