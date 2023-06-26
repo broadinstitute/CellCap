@@ -303,7 +303,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], perturbations)
             * lamda
         )
-
+        
         loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss
 
         kl_local = dict(

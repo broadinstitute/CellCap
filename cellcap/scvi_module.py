@@ -117,6 +117,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def get_h(self) -> pd.DataFrame:
 
         w = F.softplus(self.module.H_pq)
+        w = self.module.H_pq.sigmoid()
         w = torch.Tensor.cpu(w).detach().numpy()
 
         return w
