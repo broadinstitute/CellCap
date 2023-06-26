@@ -4,7 +4,7 @@ import logging
 
 import torch
 import torch.nn.functional as F
-from torch.distributions import Normal, Poisson
+from torch.distributions import Normal, Poisson, Laplace
 from torch.distributions import kl_divergence as kl
 
 from scvi import REGISTRY_KEYS
@@ -35,7 +35,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         n_donor: int = 5,
         n_layers_encoder: int = 1,
         n_head: int = 1,
-        dropout_rate: float = 0.1,
+        dropout_rate: float = 0.25,
         dispersion: str = "gene",
         log_variational: bool = True,
         gene_likelihood: Literal["nb", "poisson"] = "nb",
@@ -76,11 +76,21 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # k stands for the dimension of latent space
         # d stands for the number of donors
 
-        self.H_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
-        self.w_qk = torch.nn.Parameter(torch.randn(n_prog, n_latent))
+        self.alpha_q = torch.nn.Parameter(torch.zeros(1, n_prog))
+        self.H_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
         self.log_alpha_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
-        self.w_donor_dk = torch.nn.Parameter(torch.randn(n_donor, n_latent))
-        self.H_key = torch.nn.Parameter(torch.randn(n_drug, n_prog, n_latent, n_head))
+        w_qk = torch.empty(n_prog, n_latent)
+        self.w_qk = torch.nn.Parameter(
+            torch.nn.init.xavier_normal_(w_qk, gain=torch.nn.init.calculate_gain('relu'))
+        )
+        w_donor_dk = torch.empty(n_donor, n_latent)
+        self.w_donor_dk = torch.nn.Parameter(
+            torch.nn.init.xavier_normal_(w_donor_dk, gain=torch.nn.init.calculate_gain('relu'))
+        )
+        H_key = torch.empty(n_drug, n_prog, n_latent, n_head)
+        self.H_key = torch.nn.Parameter(
+            torch.nn.init.xavier_normal_(H_key, gain=torch.nn.init.calculate_gain('relu'))
+        )
 
         self.z_encoder = Encoder(
             n_input,
@@ -146,10 +156,12 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             x_ = torch.log(1 + x_)
         encoder_input = x_
 
-        h = torch.matmul(p, self.H_pq.sigmoid())
+        h = torch.matmul(p, F.softplus(self.H_pq))
+        alpha_ip = torch.matmul(p, self.log_alpha_pq).sigmoid()
+        alpha_glb = torch.matmul(torch.max(p, 1)[0].view(-1, 1), self.alpha_q).sigmoid()
+
         qz_m, qz_v, z_basal = self.z_encoder(encoder_input)
         delta_z_donor = torch.matmul(donor, self.w_donor_dk)
-        alpha_ip = torch.matmul(p, self.log_alpha_pq).sigmoid()
 
         if n_samples > 1:
             qz_m = qz_m.unsqueeze(0).expand((n_samples, qz_m.size(0), qz_m.size(1)))
@@ -195,6 +207,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             library=library,
             h=h,
             alpha_ip=alpha_ip,
+            alpha_glb=alpha_glb,
             prob=prob,
             attn=attn,
             H_attn=H_attn,
@@ -248,6 +261,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         generative_outputs,
         kl_weight: float = 1.0,
         h_kl_weight: float = 1.0,
+        g_kl_weight: float = 0.2,
         rec_weight: float = 1.0,
         lamda: float = 1.0,
     ):
@@ -269,32 +283,40 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         )
 
         kl_divergence_h = -1 * (
-            Normal(loc=0.0, scale=inference_outputs["alpha_ip"])
+            Laplace(loc=0.0, scale=inference_outputs["alpha_ip"])
             .log_prob(inference_outputs["H_attn"])
             .sum(-1)
         )
 
-        weighted_kl_local = kl_weight * kl_divergence_z + h_kl_weight * kl_divergence_h
+        kl_divergence_g = -1 * (
+            Laplace(loc=0.0, scale=inference_outputs["alpha_glb"])
+            .log_prob(inference_outputs["H_attn"])
+            .sum(-1)
+        )
 
+        weighted_kl_local = (
+                kl_weight * kl_divergence_z
+                + h_kl_weight * kl_divergence_h
+                + g_kl_weight * kl_divergence_g
+        )
         adv_loss = (
             torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], perturbations)
             * lamda
         )
-        cor_penalty = cal_off_diagonal_corr(
-            F.normalize(self.w_qk, p=2, dim=1)
-        ) * 1e-4
 
-        loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss + cor_penalty
+        loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss
 
         kl_local = dict(
             kl_divergence_z=kl_divergence_z,
             kl_divergence_h=kl_divergence_h,
+            kl_divergence_g=kl_divergence_g,
         )
 
         # extra metrics for logging
         extra_metrics = {
             "adv_loss": adv_loss,
             "kl_divergence_h_mean": kl_divergence_h.mean(),
+            "kl_divergence_g_mean": kl_divergence_g.mean(),
         }
         alpha_pq_dict = logging_dict_from_tensor(inference_outputs["alpha_pq"], "alpha")
         extra_metrics.update(alpha_pq_dict)
