@@ -93,21 +93,18 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return loadings
 
     def get_pert_loadings(self) -> pd.DataFrame:
-
         w = torch.matmul(self.module.H_pq.sigmoid(), self.module.w_qk)
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_resp_loadings(self) -> pd.DataFrame:
-
         w = self.module.w_qk
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_donor_loadings(self) -> pd.DataFrame:
-
         w = self.module.w_donor_dk
         loadings = torch.Tensor.cpu(w).detach().numpy()
         loadings = pd.DataFrame(loadings.T)
@@ -115,7 +112,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return loadings
 
     def get_h(self) -> pd.DataFrame:
-
         w = F.softplus(self.module.H_pq)
         w = self.module.H_pq.sigmoid()
         w = torch.Tensor.cpu(w).detach().numpy()
@@ -123,11 +119,33 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return w
 
     def get_ard(self) -> pd.DataFrame:
-
         w = self.module.log_alpha_pq.sigmoid()
         w = torch.Tensor.cpu(w).detach().numpy()
 
         return w
+
+    @torch.no_grad()
+    def get_h_attn(
+        self,
+        adata: Optional[AnnData] = None,
+        batch_size: Optional[int] = None,
+    ) -> np.ndarray:
+        """Get the inferred H_attn for each cell, which is the usage of each
+        response program after attention is taken into account
+        """
+
+        if self.is_trained_ is False:
+            raise RuntimeError("Please train the model first.")
+
+        adata = self._validate_anndata(adata)
+        post = self._make_data_loader(adata=adata, batch_size=batch_size, shuffle=False)
+        h_attn = []
+        for tensors in post:
+            inference_inputs = self.module._get_inference_input(tensors)
+            outputs = self.module.inference(**inference_inputs)
+            out = outputs["H_attn"]
+            h_attn.append(out.detach().cpu())
+        return np.array(torch.cat(h_attn))
 
     @torch.no_grad()
     def get_latent_embedding(
@@ -285,7 +303,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             train_size=train_size,
             validation_size=validation_size,
             batch_size=batch_size,
-            use_gpu=use_gpu,
         )
 
         training_plan = TrainingPlan(self.module, **plan_kwargs)
@@ -295,7 +312,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             training_plan=training_plan,
             data_splitter=data_splitter,
             max_epochs=max_epochs,
-            use_gpu=use_gpu,
+            accelerator="gpu" if use_gpu else "cpu",
             early_stopping=early_stopping,
             check_val_every_n_epoch=check_val_every_n_epoch,
             early_stopping_monitor="reconstruction_loss_validation",
