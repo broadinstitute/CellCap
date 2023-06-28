@@ -15,7 +15,6 @@ from scvi.module.base import BaseModuleClass, LossOutput, auto_move_data
 from typing import Dict, Literal
 from .mixins import CellCapMixin
 from .nn.advclassifier import AdvNet
-from .utils import cal_off_diagonal_corr
 from .nn.decoder import LinearDecoderSCVI
 
 
@@ -81,15 +80,21 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         self.log_alpha_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
         w_qk = torch.empty(n_prog, n_latent)
         self.w_qk = torch.nn.Parameter(
-            torch.nn.init.xavier_normal_(w_qk, gain=torch.nn.init.calculate_gain('relu'))
+            torch.nn.init.xavier_normal_(
+                w_qk, gain=torch.nn.init.calculate_gain("relu")
+            )
         )
         w_donor_dk = torch.empty(n_donor, n_latent)
         self.w_donor_dk = torch.nn.Parameter(
-            torch.nn.init.xavier_normal_(w_donor_dk, gain=torch.nn.init.calculate_gain('relu'))
+            torch.nn.init.xavier_normal_(
+                w_donor_dk, gain=torch.nn.init.calculate_gain("relu")
+            )
         )
         H_key = torch.empty(n_drug, n_prog, n_latent, n_head)
         self.H_key = torch.nn.Parameter(
-            torch.nn.init.xavier_normal_(H_key, gain=torch.nn.init.calculate_gain('relu'))
+            torch.nn.init.xavier_normal_(
+                H_key, gain=torch.nn.init.calculate_gain("relu")
+            )
         )
 
         self.z_encoder = Encoder(
@@ -295,15 +300,15 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         )
 
         weighted_kl_local = (
-                kl_weight * kl_divergence_z
-                + h_kl_weight * kl_divergence_h
-                + g_kl_weight * kl_divergence_g
+            kl_weight * kl_divergence_z
+            + h_kl_weight * kl_divergence_h
+            + g_kl_weight * kl_divergence_g
         )
         adv_loss = (
             torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], perturbations)
             * lamda
         )
-        
+
         loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss
 
         kl_local = dict(

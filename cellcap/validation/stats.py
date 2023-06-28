@@ -11,9 +11,9 @@ from typing import Dict
 
 
 def compute_basal_state_classifier_stats(
-        adata: anndata.AnnData,
-        perturbation_key: str,
-        basal_key: str,
+    adata: anndata.AnnData,
+    perturbation_key: str,
+    basal_key: str,
 ) -> Dict[str, np.ndarray]:
     """For the learned basal state, compute TPR and FPR for a ROC curve, as well as AUC
 
@@ -36,12 +36,14 @@ def compute_basal_state_classifier_stats(
 
     for c in unique_perturbation_conditions:
         X = adata.obsm[basal_key]
-        y = (adata.obs[perturbation_key] == c)
+        y = adata.obs[perturbation_key] == c
 
         random_state = np.random.RandomState(0)
 
         # shuffle and split training and test sets
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=random_state)
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.5, random_state=random_state
+        )
 
         # Learn to predict each class against the others
         classifier = LogisticRegression(random_state=random_state)
@@ -50,7 +52,9 @@ def compute_basal_state_classifier_stats(
         fpr[c], tpr[c], _ = roc_curve(y_test, y_score, pos_label=classifier.classes_[1])
         roc_auc[c] = auc(fpr[c], tpr[c])
 
-    return {'fpr': fpr,
-            'tpr': tpr,
-            'unique_perturbation_conditions': unique_perturbation_conditions,
-            'auc': roc_auc}
+    return {
+        "fpr": fpr,
+        "tpr": tpr,
+        "unique_perturbation_conditions": unique_perturbation_conditions,
+        "auc": roc_auc,
+    }

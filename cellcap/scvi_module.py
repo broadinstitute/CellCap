@@ -93,21 +93,18 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return loadings
 
     def get_pert_loadings(self) -> pd.DataFrame:
-
         w = torch.matmul(self.module.H_pq.sigmoid(), self.module.w_qk)
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_resp_loadings(self) -> pd.DataFrame:
-
         w = self.module.w_qk
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_donor_loadings(self) -> pd.DataFrame:
-
         w = self.module.w_donor_dk
         loadings = torch.Tensor.cpu(w).detach().numpy()
         loadings = pd.DataFrame(loadings.T)
@@ -115,7 +112,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return loadings
 
     def get_h(self) -> pd.DataFrame:
-
         w = F.softplus(self.module.H_pq)
         w = self.module.H_pq.sigmoid()
         w = torch.Tensor.cpu(w).detach().numpy()
@@ -123,7 +119,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return w
 
     def get_ard(self) -> pd.DataFrame:
-
         w = self.module.log_alpha_pq.sigmoid()
         w = torch.Tensor.cpu(w).detach().numpy()
 
@@ -131,9 +126,9 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     @torch.no_grad()
     def get_h_attn(
-            self,
-            adata: Optional[AnnData] = None,
-            batch_size: Optional[int] = None,
+        self,
+        adata: Optional[AnnData] = None,
+        batch_size: Optional[int] = None,
     ) -> np.ndarray:
         """Get the inferred H_attn for each cell, which is the usage of each
         response program after attention is taken into account
