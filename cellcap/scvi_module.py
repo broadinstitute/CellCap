@@ -130,6 +130,29 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return w
 
     @torch.no_grad()
+    def get_h_attn(
+            self,
+            adata: Optional[AnnData] = None,
+            batch_size: Optional[int] = None,
+    ) -> np.ndarray:
+        """Get the inferred H_attn for each cell, which is the usage of each
+        response program after attention is taken into account
+        """
+
+        if self.is_trained_ is False:
+            raise RuntimeError("Please train the model first.")
+
+        adata = self._validate_anndata(adata)
+        post = self._make_data_loader(adata=adata, batch_size=batch_size, shuffle=False)
+        h_attn = []
+        for tensors in post:
+            inference_inputs = self.module._get_inference_input(tensors)
+            outputs = self.module.inference(**inference_inputs)
+            out = outputs["H_attn"]
+            h_attn.append(out.detach().cpu())
+        return np.array(torch.cat(h_attn))
+
+    @torch.no_grad()
     def get_latent_embedding(
         self,
         adata: Optional[AnnData] = None,
