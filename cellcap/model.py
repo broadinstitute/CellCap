@@ -4,8 +4,10 @@ import logging
 
 import torch
 import torch.nn.functional as F
-from torch.distributions import Normal, Poisson, Laplace
+from torch.distributions import Normal, Poisson, Laplace, Distribution
 from torch.distributions import kl_divergence as kl
+from torch.distributions.kl import register_kl
+from pyro.distributions import Delta
 
 from scvi import REGISTRY_KEYS
 from scvi.nn import Encoder, one_hot
@@ -75,9 +77,14 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # k stands for the dimension of latent space
         # d stands for the number of donors
 
-        self.alpha_q = torch.nn.Parameter(torch.zeros(1, n_prog))
+        # self.alpha_q = torch.nn.Parameter(torch.zeros(1, n_prog))
         self.H_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
-        self.log_alpha_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
+        # self.log_alpha_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
+
+        # hyperparamters for ARD
+        self.b_q = torch.nn.Parameter(torch.zeros(n_prog))
+        self.c_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
+
         w_qk = torch.empty(n_prog, n_latent)
         self.w_qk = torch.nn.Parameter(
             torch.nn.init.xavier_normal_(
@@ -125,31 +132,33 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
     def _get_inference_input(self, tensors):
         x = tensors[REGISTRY_KEYS.X_KEY]
         p = tensors["TARGET_KEY"]
-        donor = tensors["DONOR_KEY"]
 
         input_dict = dict(
             x=x,
             p=p,
-            donor=donor,
         )
         return input_dict
 
     def _get_generative_input(self, tensors, inference_outputs):
         library = inference_outputs["library"]
         z_basal = inference_outputs["z_basal"]
-        delta_z = inference_outputs["delta_z"]
-        delta_z_donor = inference_outputs["delta_z_donor"]
+        donor = tensors["DONOR_KEY"]
+        perturbation_np = tensors["TARGET_KEY"]
+        v_nq = inference_outputs["v_nq"]
+        u_q = inference_outputs["u_q"]
 
         input_dict = dict(
             z_basal=z_basal,
-            delta_z=delta_z,
-            delta_z_donor=delta_z_donor,
+            v_nq=v_nq,
+            u_q=u_q,
+            perturbation_np=perturbation_np,
             library=library,
+            donor=donor,
         )
         return input_dict
 
     @auto_move_data
-    def inference(self, x, p, donor, n_samples=1):
+    def inference(self, x, p, n_samples=1):
         """
         High level inference method.
 
@@ -162,11 +171,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         encoder_input = x_
 
         h = torch.matmul(p, F.softplus(self.H_pq))
-        alpha_ip = torch.matmul(p, self.log_alpha_pq).sigmoid()
-        alpha_glb = torch.matmul(torch.max(p, 1)[0].view(-1, 1), self.alpha_q).sigmoid()
 
         qz_m, qz_v, z_basal = self.z_encoder(encoder_input)
-        delta_z_donor = torch.matmul(donor, self.w_donor_dk)
 
         if n_samples > 1:
             qz_m = qz_m.unsqueeze(0).expand((n_samples, qz_m.size(0), qz_m.size(1)))
@@ -200,33 +206,60 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             attn = attn + a
         H_attn = attn * h
 
+        # posteriors for v_nq and u_q
+        v_nq_posterior = Delta(H_attn)
+        v_nq_posterior_sample = v_nq_posterior.sample()
+        u_q_posterior = Delta(v_nq_posterior_sample.sum(dim=0))
+        u_q_posterior_sample = u_q_posterior.sample()
+
         prob = self.discriminator(z_basal)
-        delta_z = torch.matmul(H_attn, self.w_qk)
 
         outputs = dict(
             z_basal=z_basal,
             qz_m=qz_m,
             qz_v=qz_v,
-            delta_z=delta_z,
-            delta_z_donor=delta_z_donor,
+            z_basal_nk_posterior=Normal(qz_m, qz_v),
             library=library,
             h=h,
-            alpha_ip=alpha_ip,
-            alpha_glb=alpha_glb,
+            v_nq_posterior=v_nq_posterior,
+            u_q_posterior=u_q_posterior,
+            v_nq=v_nq_posterior_sample,
+            u_q=u_q_posterior_sample,
             prob=prob,
             attn=attn,
             H_attn=H_attn,
-            alpha_pq=self.log_alpha_pq.detach().sigmoid(),
         )
         return outputs
 
     @auto_move_data
     def generative(
-        self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None
+        self,
+        z_basal,
+        u_q,
+        v_nq,
+        library,
+        perturbation_np,
+        donor,
+        y=None,
+        transform_batch=None,
     ):
         """Runs the generative model."""
         # Likelihood distribution
 
+        # priors on u_q and v_nq
+        u_q_prior = Laplace(loc=0.0, scale=self.b_q.sigmoid())
+        v_nq_prior = Laplace(
+            loc=0.0,
+            scale=u_q.unsqueeze(0) * torch.matmul(perturbation_np, self.c_pq).sigmoid(),
+        )
+
+        # donor contribution
+        delta_z_donor = torch.matmul(donor, self.w_donor_dk)
+
+        # compute z perturbation
+        delta_z = torch.matmul(v_nq, self.w_qk)
+
+        # final z
         z = z_basal + delta_z + delta_z_donor
         decoder_input = z
 
@@ -256,8 +289,15 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
 
         # Priors
         pl = None
-        pz = Normal(torch.zeros_like(z), torch.ones_like(z))
-        return dict(z=z, px=px, pl=pl, pz=pz)
+        z_basal_nk_prior = Normal(torch.zeros_like(z), torch.ones_like(z))
+        return dict(
+            z=z,
+            px=px,
+            pl=pl,
+            z_basal_nk_prior=z_basal_nk_prior,
+            u_q_prior=u_q_prior,
+            v_nq_prior=v_nq_prior,
+        )
 
     def loss(
         self,
@@ -273,58 +313,54 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         x = tensors[REGISTRY_KEYS.X_KEY]
         perturbations = tensors["TARGET_KEY"]
 
-        qz_m = inference_outputs["qz_m"]
-        qz_v = inference_outputs["qz_v"]
-
-        mean = torch.zeros_like(qz_m)
-        scale = torch.ones_like(qz_v)
-
         # reconstruction loss
         rec_loss = -generative_outputs["px"].log_prob(x).sum(-1) * rec_weight
 
         # KL divergence
-        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
-            dim=1
+        kl_divergence_z_n = kl(
+            inference_outputs["z_basal_nk_posterior"],
+            generative_outputs["z_basal_nk_prior"],
+        ).sum(1)
+
+        # KL divergence for u_q
+        kl_divergence_u_q = kl(
+            inference_outputs["u_q_posterior"],
+            generative_outputs["u_q_prior"],
         )
 
-        kl_divergence_h = -1 * (
-            Laplace(loc=0.0, scale=inference_outputs["alpha_ip"])
-            .log_prob(inference_outputs["H_attn"])
-            .sum(-1)
-        )
-
-        kl_divergence_g = -1 * (
-            Laplace(loc=0.0, scale=inference_outputs["alpha_glb"])
-            .log_prob(inference_outputs["H_attn"])
-            .sum(-1)
-        )
+        # KL divergence for v_nq
+        kl_divergence_v_n = kl(
+            inference_outputs["v_nq_posterior"],
+            generative_outputs["v_nq_prior"],
+        ).sum(1)
 
         weighted_kl_local = (
-            kl_weight * kl_divergence_z
-            + h_kl_weight * kl_divergence_h
-            + g_kl_weight * kl_divergence_g
+            kl_weight * kl_divergence_z_n + h_kl_weight * kl_divergence_v_n
         )
+        weighted_kl_global = g_kl_weight * kl_divergence_u_q.sum()
+
         adv_loss = (
             torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], perturbations)
             * lamda
         )
 
-        loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss
+        loss = torch.mean(rec_loss + weighted_kl_local) + weighted_kl_global + adv_loss
 
         kl_local = dict(
-            kl_divergence_z=kl_divergence_z,
-            kl_divergence_h=kl_divergence_h,
-            kl_divergence_g=kl_divergence_g,
+            kl_divergence_z=kl_divergence_z_n.mean(),
+            kl_divergence_h=kl_divergence_v_n.mean(),
         )
 
         # extra metrics for logging
         extra_metrics = {
             "adv_loss": adv_loss,
-            "kl_divergence_h_mean": kl_divergence_h.mean(),
-            "kl_divergence_g_mean": kl_divergence_g.mean(),
+            "kl_divergence_v_mean": kl_divergence_v_n.mean(),
+            "kl_divergence_u_mean": kl_divergence_u_q.mean(),
         }
-        alpha_pq_dict = logging_dict_from_tensor(inference_outputs["alpha_pq"], "alpha")
-        extra_metrics.update(alpha_pq_dict)
+        b_q_dict = logging_dict_from_tensor(self.b_q.sigmoid(), "b_q")
+        c_pq_dict = logging_dict_from_tensor(self.c_pq.sigmoid(), "c_pq")
+        extra_metrics.update(b_q_dict)
+        extra_metrics.update(c_pq_dict)
 
         return LossOutput(
             loss=loss,
@@ -339,3 +375,9 @@ def logging_dict_from_tensor(x: torch.Tensor, name: str) -> Dict[str, torch.Tens
     with each value being a 0-d tensor, appropriate for logging."""
     flat_x = x.flatten()
     return {f"{name}_{i}": flat_x[i] for i in range(len(flat_x))}
+
+
+# https://pytorch.org/docs/stable/distributions.html#torch.distributions.kl.register_kl
+@register_kl(Delta, Distribution)
+def kl_any_delta(delta_dist, p):
+    return -1 * p.log_prob(delta_dist.mean)
