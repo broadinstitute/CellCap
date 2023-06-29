@@ -379,5 +379,5 @@ def logging_dict_from_tensor(x: torch.Tensor, name: str) -> Dict[str, torch.Tens
 
 # https://pytorch.org/docs/stable/distributions.html#torch.distributions.kl.register_kl
 @register_kl(Delta, Distribution)
-def kl_any_delta(delta_dist, p):
+def kl_delta_any(delta_dist, p):
     return -1 * p.log_prob(delta_dist.mean)
