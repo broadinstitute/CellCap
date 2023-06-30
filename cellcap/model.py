@@ -85,6 +85,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # hyperparamters for ARD
         self.b_q = torch.nn.Parameter((torch.ones(n_prog) / np.sqrt(n_prog)).logit())
         self.c_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
+        self.laplace_scale = torch.nn.Parameter(torch.zeros([1]))
 
         w_qk = torch.empty(n_prog, n_latent)
         self.w_qk = torch.nn.Parameter(
@@ -208,9 +209,11 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         H_attn = attn * h
 
         # posteriors for v_nq and u_q
-        v_nq_posterior = Delta(H_attn)
+        v_nq_posterior = Laplace(loc=H_attn, scale=self.laplace_scale.exp())
         v_nq_posterior_sample = v_nq_posterior.sample()
-        u_q_posterior = Delta(v_nq_posterior_sample.sum(dim=0))
+        u_q_posterior = Laplace(
+            loc=v_nq_posterior_sample.sum(dim=0), scale=self.laplace_scale.exp()
+        )
         u_q_posterior_sample = u_q_posterior.sample()
 
         prob = self.discriminator(z_basal)
@@ -253,7 +256,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             loc=0.0,
             scale=(
                 u_q.unsqueeze(0) * torch.matmul(perturbation_np, self.c_pq)
-            ).sigmoid(),
+            ).sigmoid() + 1e-10,
         )
 
         # donor contribution
@@ -311,7 +314,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         h_kl_weight: float = 1.0,
         g_kl_weight: float = 1.0,
         rec_weight: float = 1.0,
-        lamda: float = 1.0,
+        lamda: float = 10.0,
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
         perturbations = tensors["TARGET_KEY"]
