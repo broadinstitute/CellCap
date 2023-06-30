@@ -3,8 +3,8 @@
 import anndata
 import numpy as np
 
-from sklearn.metrics import roc_curve, auc
-from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_curve, auc, explained_variance_score
+from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.model_selection import train_test_split
 
 from typing import Dict
@@ -57,4 +57,51 @@ def compute_basal_state_classifier_stats(
         "tpr": tpr,
         "unique_perturbation_conditions": unique_perturbation_conditions,
         "auc": roc_auc,
+    }
+
+
+def compute_basal_state_regression_stats(
+    adata: anndata.AnnData,
+    attention_key: str,
+    basal_key: str,
+) -> Dict[str, np.ndarray]:
+    """For the learned basal state, train a regressor to predict attention_key
+
+    Args:
+        adata: AnnData object
+        attention_key: Key of adata.obs that specifies (truth) attention information
+        basal_key: Key of adata.obsm that contains the learned basal state
+
+    Returns:
+        Dict with [FPR, TPR, AUC, unique_perturbation_conditions] where
+        unique_perturbation_conditions labels the other arrays
+
+    """
+
+    X = adata.obsm[basal_key]
+    y = adata.obs[attention_key]
+
+    random_state = np.random.RandomState(0)
+
+    # shuffle and split training and test sets
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.1, random_state=random_state
+    )
+
+    # learn to predict values in attention_key
+    regressor = LinearRegression(fit_intercept=True)
+    regressor.fit(X_train, y_train)
+    y_predicted = regressor.predict(X_test)
+
+    # compute variance explained on test
+    test_variance_explained = explained_variance_score(
+        y_true=y_test, y_pred=y_predicted
+    )
+
+    return {
+        "test_true": y_test,
+        "test_predicted": y_predicted,
+        "train_true": y_train,
+        "train_predicted": regressor.predict(X_train),
+        "test_variance_explained": test_variance_explained,
     }

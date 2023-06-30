@@ -6,7 +6,10 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-from .stats import compute_basal_state_classifier_stats
+from .stats import (
+    compute_basal_state_classifier_stats,
+    compute_basal_state_regression_stats,
+)
 from ..scvi_module import CellCap
 
 from typing import Dict
@@ -108,6 +111,51 @@ def plot_program_usage(
     return h_attn_per_perturbation
 
 
+def plot_program_usage_ignoring_attention(
+    cellcap: CellCap,
+    adata: anndata.AnnData,
+    perturbation_key: str,
+) -> pd.DataFrame:
+    """Plot a matrixplot showing the usage of each response program by each
+    perturbation, if attention were not taken into account.
+
+    Args:
+        cellcap: The trained model
+        adata: AnnData object
+        perturbation_key: Key of adata.obs that contains the perturbation information
+
+    Returns:
+        Summary dataframe with the numerical values of h_pq
+
+    """
+
+    h_pq = cellcap.get_h()
+
+    im = plt.imshow(h_pq, cmap="Oranges", vmin=0)
+    plt.grid(False)
+    plt.xticks(ticks=range(h_pq.shape[1]))
+    plt.xlabel("Response program")
+
+    # TODO: once the input format is updated to ObsField instead of ObsmField,
+    # TODO: then we can pull this label information more directly from the model
+    plt.yticks(
+        ticks=range(h_pq.shape[0]),
+        labels=pd.get_dummies(
+            (
+                adata.obs[perturbation_key]
+                .str.lower()
+                .replace(to_replace="control", value=np.nan)
+            )
+        ).columns,
+    )
+
+    plt.ylabel("Perturbation")
+    plt.title("Program usage\nwithout attention")
+    plt.colorbar(im, fraction=0.025, pad=0.04)
+
+    return h_pq
+
+
 def plot_ard_parameters(
     cellcap: CellCap,
     adata: anndata.AnnData,
@@ -121,7 +169,7 @@ def plot_ard_parameters(
         perturbation_key: Key of adata.obs that contains the perturbation information
 
     Returns:
-        Summary dataframe with the numerical values of the response program usage
+        Summary dict
 
     """
 
@@ -150,3 +198,56 @@ def plot_ard_parameters(
     plt.colorbar(im, fraction=0.025, pad=0.04)
 
     return ard
+
+
+def plot_basal_correlation_with_attention(
+    adata: anndata.AnnData,
+    attention_key: str,
+    basal_key: str = "X_basal",
+) -> Dict[str, np.ndarray]:
+    """Compute a linear regression between z_basal and the attention values
+    in adata.obs[attention_key]
+
+    Args:
+        adata: AnnData object
+        attention_key: Key of adata.obs that contains the perturbation information
+        basal_key: Key of adata.obsm that contains the learned basal state
+
+    Returns:
+        Summary dict
+    """
+
+    stats = compute_basal_state_regression_stats(
+        adata=adata,
+        basal_key=basal_key,
+        attention_key=attention_key,
+    )
+
+    x = np.array(stats["train_true"].tolist() + stats["test_true"].tolist())
+    y = np.array(stats["train_predicted"].tolist() + stats["test_predicted"].tolist())
+    c = np.array(
+        len(stats["train_true"]) * ["train"] + len(stats["test_true"]) * ["test"]
+    )
+    order = np.argsort(x)
+
+    plt.plot(
+        x[order][c[order] == "train"],
+        y[order][c[order] == "train"],
+        "k.",
+        label="train",
+    )
+    plt.plot(
+        x[order][c[order] == "test"],
+        y[order][c[order] == "test"],
+        "r.",
+        label="test",
+    )
+    plt.plot([0, 1], [0, 1], "-", color="lightgray", label="truth")
+    plt.legend()
+    plt.xlabel(f'True adata.obs["{attention_key}"] value')
+    plt.ylabel("Value predicted from z_basal")
+    plt.title(
+        f'Variance explained on test data:\n{stats["test_variance_explained"]:.2f}'
+    )
+
+    return stats
