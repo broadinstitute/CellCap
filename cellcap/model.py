@@ -8,6 +8,7 @@ from torch.distributions import Normal, Poisson, Laplace, Distribution
 from torch.distributions import kl_divergence as kl
 from torch.distributions.kl import register_kl
 from pyro.distributions import Delta
+import numpy as np
 
 from scvi import REGISTRY_KEYS
 from scvi.nn import Encoder, one_hot
@@ -82,8 +83,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # self.log_alpha_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
 
         # hyperparamters for ARD
-        self.b_q = torch.nn.Parameter(torch.zeros(n_prog))
-        self.c_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
+        self.b_q = torch.nn.Parameter((torch.ones(n_prog) / np.sqrt(n_prog)).logit())
+        self.c_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
 
         w_qk = torch.empty(n_prog, n_latent)
         self.w_qk = torch.nn.Parameter(
@@ -250,7 +251,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         u_q_prior = Laplace(loc=0.0, scale=self.b_q.sigmoid())
         v_nq_prior = Laplace(
             loc=0.0,
-            scale=u_q.unsqueeze(0) * torch.matmul(perturbation_np, self.c_pq).sigmoid(),
+            scale=(
+                u_q.unsqueeze(0) * torch.matmul(perturbation_np, self.c_pq)
+            ).sigmoid(),
         )
 
         # donor contribution
@@ -306,7 +309,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         generative_outputs,
         kl_weight: float = 1.0,
         h_kl_weight: float = 1.0,
-        g_kl_weight: float = 0.2,
+        g_kl_weight: float = 1.0,
         rec_weight: float = 1.0,
         lamda: float = 1.0,
     ):
@@ -334,6 +337,12 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             generative_outputs["v_nq_prior"],
         ).sum(1)
 
+        # mask control cells from u_q and v_nq divergences
+        perturbed_mask = perturbations.sum(dim=-1) > 0
+        kl_divergence_v_n = torch.where(
+            perturbed_mask, kl_divergence_v_n, torch.zeros_like(kl_divergence_v_n)
+        )
+
         weighted_kl_local = (
             kl_weight * kl_divergence_z_n + h_kl_weight * kl_divergence_v_n
         )
@@ -348,19 +357,19 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
 
         kl_local = dict(
             kl_divergence_z=kl_divergence_z_n.mean(),
-            kl_divergence_h=kl_divergence_v_n.mean(),
+            # kl_divergence_h=kl_divergence_v_n.mean(),
         )
 
         # extra metrics for logging
         extra_metrics = {
             "adv_loss": adv_loss,
-            "kl_divergence_v_mean": kl_divergence_v_n.mean(),
+            # "kl_divergence_v_mean": kl_divergence_v_n.mean(),
             "kl_divergence_u_mean": kl_divergence_u_q.mean(),
         }
         b_q_dict = logging_dict_from_tensor(self.b_q.sigmoid(), "b_q")
-        c_pq_dict = logging_dict_from_tensor(self.c_pq.sigmoid(), "c_pq")
+        # c_pq_dict = logging_dict_from_tensor(self.c_pq.sigmoid(), "c_pq")
         extra_metrics.update(b_q_dict)
-        extra_metrics.update(c_pq_dict)
+        # extra_metrics.update(c_pq_dict)
 
         return LossOutput(
             loss=loss,

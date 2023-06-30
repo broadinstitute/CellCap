@@ -27,7 +27,7 @@ from scvi.data.fields import (
 )
 
 from .model import CellCapModel
-from typing import Optional, Union, Literal
+from typing import Optional, Union, Literal, Dict
 from scvi.train._trainingplans import TrainingPlan
 
 torch.backends.cudnn.benchmark = True
@@ -118,11 +118,14 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
         return w
 
-    def get_ard(self) -> pd.DataFrame:
-        w = self.module.log_alpha_pq.sigmoid()
-        w = torch.Tensor.cpu(w).detach().numpy()
+    def get_ard(self) -> Dict[str, np.ndarray]:
+        b_q = self.module.b_q.sigmoid()
+        c_pq = (self.module.c_pq * b_q).sigmoid()
 
-        return w
+        return {
+            "global": b_q.detach().cpu().numpy(),
+            "local": c_pq.detach().cpu().numpy(),
+        }
 
     @torch.no_grad()
     def get_h_attn(

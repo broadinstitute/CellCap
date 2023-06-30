@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 from .stats import compute_basal_state_classifier_stats
 from ..scvi_module import CellCap
 
+from typing import Dict
+
 
 def plot_adversarial_classifier_roc(
     adata: anndata.AnnData,
@@ -110,7 +112,7 @@ def plot_ard_parameters(
     cellcap: CellCap,
     adata: anndata.AnnData,
     perturbation_key: str = "perturbation",
-) -> pd.DataFrame:
+) -> Dict[str, np.ndarray]:
     """Plot a matrixplot showing the ARD parameter for each (response program, perturbation)
 
     Args:
@@ -125,15 +127,15 @@ def plot_ard_parameters(
 
     ard = cellcap.get_ard()
 
-    im = plt.imshow(ard, cmap="Oranges", vmin=0, vmax=1)
+    im = plt.imshow(ard["local"], cmap="Oranges", vmin=0, vmax=1)
     plt.grid(False)
-    plt.xticks(ticks=range(ard.shape[1]))
+    plt.xticks(ticks=range(ard["local"].shape[1]))
     plt.xlabel("Response program")
 
     # TODO: once the input format is updated to ObsField instead of ObsmField,
     # TODO: then we can pull this label information more directly from the model
     plt.yticks(
-        ticks=range(ard.shape[0]),
+        ticks=range(ard["local"].shape[0]),
         labels=pd.get_dummies(
             (
                 adata.obs[perturbation_key]
@@ -146,3 +148,5 @@ def plot_ard_parameters(
     plt.ylabel("Perturbation")
     plt.title("Program ARD relevance")
     plt.colorbar(im, fraction=0.025, pad=0.04)
+
+    return ard
