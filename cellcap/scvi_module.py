@@ -298,7 +298,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             if "callbacks" not in kwargs.keys():
                 kwargs["callbacks"] = []
             kwargs["callbacks"].append(
-                SaveBestState(monitor="reconstruction_loss_validation")
+                SaveBestState(monitor="validation_loss")
             )
 
         data_splitter = DataSplitter(
@@ -318,8 +318,8 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             accelerator="gpu" if use_gpu else "cpu",
             early_stopping=early_stopping,
             check_val_every_n_epoch=check_val_every_n_epoch,
-            early_stopping_monitor="reconstruction_loss_validation",
-            early_stopping_patience=50,
+            early_stopping_monitor="monitor_validation",
+            early_stopping_patience=150,
             **kwargs,
         )
         return runner()

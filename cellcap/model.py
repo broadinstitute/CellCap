@@ -83,8 +83,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # self.log_alpha_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
 
         # hyperparamters for ARD
-        # self.b_q = torch.nn.Parameter((torch.ones(n_prog) / np.sqrt(n_prog)).logit())
-        self.b_q = torch.nn.Parameter(-2 * torch.ones(n_prog))
+        self.b_q = torch.nn.Parameter((torch.ones(n_prog) / np.sqrt(n_prog)).logit())
+        # self.b_q = torch.nn.Parameter(-2 * torch.ones(n_prog))
         self.c_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
         self.laplace_scale = torch.nn.Parameter(-2 * torch.ones([1]))
 
@@ -317,7 +317,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         generative_outputs,
         kl_weight: float = 1.0,
         # h_kl_weight: float = 1.0,
-        g_kl_weight: float = 1.0,
+        g_kl_weight: float = 0.1,
         rec_weight: float = 1.0,
         lamda: float = 1.0,
     ):
@@ -360,13 +360,21 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
 
         with torch.no_grad():
             adv_threshold = 0.0  # some value we choose
-            adv_decay = 0.95
-            predictions = torch.argmax(inference_outputs["prob"], dim=-1)
-            truth = perturbations
-            adv_accuracy = (torch.gather(truth, 1, predictions.unsqueeze(1)).sum().squeeze()
-                            / (perturbations.sum(dim=-1) > 0).sum())
-            random_accuracy = 1. / perturbations.shape[1]
-            adv_penalty = F.relu(10. * (torch.exp(2. * (adv_accuracy - random_accuracy - adv_threshold)) - 1.))
+            adv_decay = 0.99
+            # predictions = torch.argmax(inference_outputs["prob"], dim=-1)
+            # truth = perturbations
+            # adv_accuracy = (torch.gather(truth, 1, predictions.unsqueeze(1)).sum().squeeze()
+            #                 / (perturbations.sum(dim=-1) > 0).sum())
+            # random_accuracy = 1. / perturbations.shape[1]
+            # adv_penalty = F.relu(10. * (torch.exp(2. * (adv_accuracy - random_accuracy - adv_threshold)) - 1.))
+
+            bce_loss = torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"].detach(), perturbations)
+            random_bce_loss = torch.nn.BCELoss(reduction="sum")(
+                torch.ones_like(perturbations) * perturbations.sum(dim=0, keepdim=True) / perturbations.shape[0],
+                perturbations,
+            )
+            adv_accuracy = F.relu(random_bce_loss - bce_loss)
+            adv_penalty = 5 * adv_accuracy
             self.adv_penalty = F.relu(self.adv_penalty * adv_decay + adv_penalty * (1. - adv_decay))
 
         final_adv_penalty = lamda + self.adv_penalty.detach()
@@ -389,7 +397,10 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         )
         weighted_kl_global = g_kl_weight * kl_divergence_u_q.sum()
 
-        loss = torch.mean(rec_loss + weighted_kl_local) + weighted_kl_global + adv_loss
+        # make programs non-overlapping
+        cross_corr_penalty = F.relu(weighted_cross_correlation(w_qk=self.w_qk, weights_q=self.b_q.sigmoid()))
+
+        loss = torch.mean(rec_loss + weighted_kl_local) + weighted_kl_global + adv_loss + 100. * cross_corr_penalty
 
         kl_local = dict(
             kl_divergence_z=kl_divergence_z_n.mean(),
@@ -403,6 +414,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             "kl_divergence_u_mean": kl_divergence_u_q.mean(),
             "adv_accuracy": adv_accuracy,
             "adv_penalty": final_adv_penalty,
+            "cross_corr_penalty": cross_corr_penalty,
+            "monitor": loss + self.b_q.sigmoid().median() * 1000.,
         }
         b_q_dict = logging_dict_from_tensor(self.b_q.sigmoid(), "b_q")
         # c_pq_dict = logging_dict_from_tensor(self.c_pq.sigmoid(), "c_pq")
@@ -415,6 +428,16 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             kl_local=kl_local,
             extra_metrics=extra_metrics,
         )
+
+
+def weighted_cross_correlation(w_qk: torch.Tensor, weights_q: torch.Tensor) -> torch.Tensor:
+    """Compute a weighted sum of cross-correlation between program definitions"""
+
+    weights_q = F.normalize(weights_q, p=1, dim=0)
+    e_qk = F.normalize(w_qk, p=2, dim=-1)
+    z_qk = e_qk * weights_q.unsqueeze(-1)
+    abs_corr_qq = torch.matmul(z_qk, z_qk.t()).abs()
+    return abs_corr_qq.sum() - torch.trace(abs_corr_qq)
 
 
 def logging_dict_from_tensor(x: torch.Tensor, name: str) -> Dict[str, torch.Tensor]:
