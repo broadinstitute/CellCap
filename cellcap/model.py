@@ -4,7 +4,7 @@ import logging
 
 import torch
 import torch.nn.functional as F
-from torch.distributions import Normal, Poisson, Laplace, Distribution
+from torch.distributions import Normal, Poisson, Laplace, Distribution, HalfCauchy
 from torch.distributions import kl_divergence as kl
 from torch.distributions.kl import register_kl
 from pyro.distributions import Delta
@@ -83,9 +83,10 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # self.log_alpha_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
 
         # hyperparamters for ARD
-        self.b_q = torch.nn.Parameter((torch.ones(n_prog) / np.sqrt(n_prog)).logit())
+        # self.b_q = torch.nn.Parameter((torch.ones(n_prog) / np.sqrt(n_prog)).logit())
+        self.b_q = torch.nn.Parameter(-2 * torch.ones(n_prog))
         self.c_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
-        self.laplace_scale = torch.nn.Parameter(torch.zeros([1]))
+        self.laplace_scale = torch.nn.Parameter(-2 * torch.ones([1]))
 
         self.adv_penalty = 1.
 
@@ -130,7 +131,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         )
 
         self.discriminator = AdvNet(
-            in_feature=self.n_latent, hidden_size=128, out_dim=self.n_drug
+            in_feature=self.n_latent, hidden_size=128, out_dim=self.n_drug + 1  # include control class
         )
 
     def _get_inference_input(self, tensors):
@@ -214,9 +215,10 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         v_nq_posterior_sample = H_attn
         # v_nq_posterior = Laplace(loc=H_attn, scale=self.laplace_scale.exp())
         # v_nq_posterior_sample = v_nq_posterior.sample()
-        u_q_posterior = Laplace(
-            loc=v_nq_posterior_sample.sum(dim=0), scale=self.laplace_scale.exp()
-        )
+        # u_q_posterior = Laplace(
+        #     loc=v_nq_posterior_sample.sum(dim=0), scale=self.laplace_scale.exp()
+        # )
+        u_q_posterior = Delta(v_nq_posterior_sample.sum(dim=0))
         u_q_posterior_sample = u_q_posterior.sample()
 
         prob = self.discriminator(z_basal)
@@ -254,7 +256,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # Likelihood distribution
 
         # priors on u_q and v_nq
-        u_q_prior = Laplace(loc=0.0, scale=self.b_q.sigmoid())
+        u_q_prior = HalfCauchy(scale=self.b_q.sigmoid())
         # v_nq_prior = Laplace(
         #     loc=0.0,
         #     scale=(
@@ -322,6 +324,13 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         x = tensors[REGISTRY_KEYS.X_KEY]
         perturbations = tensors["TARGET_KEY"]
 
+        # add one-hot control column as first column of perturbations
+        perturbations = torch.cat(
+            [(perturbations.sum(dim=-1, keepdim=True) == 0).float(),  # control cells
+             perturbations],
+            dim=-1,
+        )
+
         # reconstruction loss
         rec_loss = -generative_outputs["px"].log_prob(x).sum(-1) * rec_weight
 
@@ -360,10 +369,17 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             adv_penalty = F.relu(10. * (torch.exp(2. * (adv_accuracy - random_accuracy - adv_threshold)) - 1.))
             self.adv_penalty = F.relu(self.adv_penalty * adv_decay + adv_penalty * (1. - adv_decay))
 
-        final_adv_penalty = lamda + self.adv_penalty
+        final_adv_penalty = lamda + self.adv_penalty.detach()
+
+        # cell_classes = torch.where(
+        #     perturbations.sum(dim=-1) > 0,
+        #     torch.argmax(perturbations, dim=-1) + 1,
+        #     torch.zeros_like(),
+        # )
 
         adv_loss = (
             torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], perturbations)
+            # torch.nn.CrossEntropyLoss(reduction="sum")(inference_outputs["prob"], perturbations)
             # * lamda
             * final_adv_penalty
         )
