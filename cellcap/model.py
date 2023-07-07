@@ -87,6 +87,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         self.c_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
         self.laplace_scale = torch.nn.Parameter(torch.zeros([1]))
 
+        self.adv_penalty = 1.
+
         w_qk = torch.empty(n_prog, n_latent)
         self.w_qk = torch.nn.Parameter(
             torch.nn.init.xavier_normal_(
@@ -209,8 +211,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         H_attn = attn * h
 
         # posteriors for v_nq and u_q
-        v_nq_posterior = Laplace(loc=H_attn, scale=self.laplace_scale.exp())
-        v_nq_posterior_sample = v_nq_posterior.sample()
+        v_nq_posterior_sample = H_attn
+        # v_nq_posterior = Laplace(loc=H_attn, scale=self.laplace_scale.exp())
+        # v_nq_posterior_sample = v_nq_posterior.sample()
         u_q_posterior = Laplace(
             loc=v_nq_posterior_sample.sum(dim=0), scale=self.laplace_scale.exp()
         )
@@ -225,7 +228,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             z_basal_nk_posterior=Normal(qz_m, qz_v),
             library=library,
             h=h,
-            v_nq_posterior=v_nq_posterior,
+            # v_nq_posterior=v_nq_posterior,
             u_q_posterior=u_q_posterior,
             v_nq=v_nq_posterior_sample,
             u_q=u_q_posterior_sample,
@@ -252,12 +255,12 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
 
         # priors on u_q and v_nq
         u_q_prior = Laplace(loc=0.0, scale=self.b_q.sigmoid())
-        v_nq_prior = Laplace(
-            loc=0.0,
-            scale=(
-                u_q.unsqueeze(0) * torch.matmul(perturbation_np, self.c_pq)
-            ).sigmoid() + 1e-10,
-        )
+        # v_nq_prior = Laplace(
+        #     loc=0.0,
+        #     scale=(
+        #         u_q.unsqueeze(0) * torch.matmul(perturbation_np, self.c_pq)
+        #     ).sigmoid() + 1e-10,
+        # )
 
         # donor contribution
         delta_z_donor = torch.matmul(donor, self.w_donor_dk)
@@ -302,7 +305,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             pl=pl,
             z_basal_nk_prior=z_basal_nk_prior,
             u_q_prior=u_q_prior,
-            v_nq_prior=v_nq_prior,
+            # v_nq_prior=v_nq_prior,
         )
 
     def loss(
@@ -311,10 +314,10 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         inference_outputs,
         generative_outputs,
         kl_weight: float = 1.0,
-        h_kl_weight: float = 1.0,
+        # h_kl_weight: float = 1.0,
         g_kl_weight: float = 1.0,
         rec_weight: float = 1.0,
-        lamda: float = 10.0,
+        lamda: float = 1.0,
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
         perturbations = tensors["TARGET_KEY"]
@@ -334,27 +337,41 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             generative_outputs["u_q_prior"],
         )
 
-        # KL divergence for v_nq
-        kl_divergence_v_n = kl(
-            inference_outputs["v_nq_posterior"],
-            generative_outputs["v_nq_prior"],
-        ).sum(1)
+        # # KL divergence for v_nq
+        # kl_divergence_v_n = kl(
+        #     inference_outputs["v_nq_posterior"],
+        #     generative_outputs["v_nq_prior"],
+        # ).sum(1)
 
-        # mask control cells from u_q and v_nq divergences
-        perturbed_mask = perturbations.sum(dim=-1) > 0
-        kl_divergence_v_n = torch.where(
-            perturbed_mask, kl_divergence_v_n, torch.zeros_like(kl_divergence_v_n)
-        )
+        # # mask control cells from u_q and v_nq divergences
+        # perturbed_mask = perturbations.sum(dim=-1) > 0
+        # kl_divergence_v_n = torch.where(
+        #     perturbed_mask, kl_divergence_v_n, torch.zeros_like(kl_divergence_v_n)
+        # )
 
-        weighted_kl_local = (
-            kl_weight * kl_divergence_z_n + h_kl_weight * kl_divergence_v_n
-        )
-        weighted_kl_global = g_kl_weight * kl_divergence_u_q.sum()
+        with torch.no_grad():
+            adv_threshold = 0.0  # some value we choose
+            adv_decay = 0.95
+            predictions = torch.argmax(inference_outputs["prob"], dim=-1)
+            truth = perturbations
+            adv_accuracy = (torch.gather(truth, 1, predictions.unsqueeze(1)).sum().squeeze()
+                            / (perturbations.sum(dim=-1) > 0).sum())
+            random_accuracy = 1. / perturbations.shape[1]
+            adv_penalty = F.relu(10. * (torch.exp(2. * (adv_accuracy - random_accuracy - adv_threshold)) - 1.))
+            self.adv_penalty = F.relu(self.adv_penalty * adv_decay + adv_penalty * (1. - adv_decay))
+
+        final_adv_penalty = lamda + self.adv_penalty
 
         adv_loss = (
             torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], perturbations)
-            * lamda
+            # * lamda
+            * final_adv_penalty
         )
+
+        weighted_kl_local = (
+            kl_divergence_z_n * kl_weight  # + h_kl_weight * kl_divergence_v_n
+        )
+        weighted_kl_global = g_kl_weight * kl_divergence_u_q.sum()
 
         loss = torch.mean(rec_loss + weighted_kl_local) + weighted_kl_global + adv_loss
 
@@ -368,6 +385,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             "adv_loss": adv_loss,
             # "kl_divergence_v_mean": kl_divergence_v_n.mean(),
             "kl_divergence_u_mean": kl_divergence_u_q.mean(),
+            "adv_accuracy": adv_accuracy,
+            "adv_penalty": final_adv_penalty,
         }
         b_q_dict = logging_dict_from_tensor(self.b_q.sigmoid(), "b_q")
         # c_pq_dict = logging_dict_from_tensor(self.c_pq.sigmoid(), "c_pq")
