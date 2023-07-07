@@ -1,6 +1,7 @@
 """Validation plotting functions"""
 
 import anndata
+import torch
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -251,3 +252,63 @@ def plot_basal_correlation_with_attention(
     )
 
     return stats
+
+
+def plot_learned_program_relationships(
+        cellcap: CellCap,
+        ard_threshold: float = 0.5,
+):
+    """Plot relationships (via scatterplots) between learned response programs,
+    both in terms of usage of latent space and in terms of effect on gene expression.
+
+    Args:
+        cellcap: The trained model
+        ard_threshold: Threshold to determine which response programs are significant,
+            and only significant ones will be plotted. Value 0 will plot all.
+    """
+
+    ard = cellcap.get_ard()
+
+    significant_program_inds = np.where(ard["global"] > ard_threshold)[0]
+
+    for i in significant_program_inds:
+        for j in significant_program_inds:
+            if i == j:
+                continue
+            if j < i:
+                continue
+
+            plt.figure(figsize=(8, 4))
+
+            plt.subplot(1, 2, 1)
+
+            plt.plot(cellcap.module.w_qk[i, :].detach().cpu(), cellcap.module.w_qk[j, :].detach().cpu(), '.')
+            plt.plot([-3, 3], [-3, 3], '-', color='lightgray')
+            plt.xlabel(f'Program {i}')
+            plt.ylabel(f'Program {j}')
+            plt.title('Latent space weights in w_qk')
+            plt.grid(False)
+
+            plt.subplot(1, 2, 2)
+
+            library = torch.tensor([7.]).to(device=cellcap.module.w_qk.device)
+
+            exp_i = cellcap.module.decoder(
+                dispersion=cellcap.module.dispersion,
+                z=cellcap.module.w_qk[i, :].unsqueeze(0),
+                library=library,
+            )[-1].squeeze().detach().cpu()
+            exp_j = cellcap.module.decoder(
+                dispersion=cellcap.module.dispersion,
+                z=cellcap.module.w_qk[j, :].unsqueeze(0),
+                library=library,
+            )[-1].squeeze().detach().cpu()
+
+            plt.loglog(exp_i / exp_i.sum(), exp_j / exp_j.sum(), '.')
+            plt.plot([0, 0.1], [0, 0.1], '-', color='lightgray')
+            plt.xlabel(f'Program {i}')
+            plt.ylabel(f'Program {j}')
+            plt.title('Gene expression in program')
+            plt.grid(False)
+
+            plt.tight_layout()
