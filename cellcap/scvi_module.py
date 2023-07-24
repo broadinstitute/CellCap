@@ -21,18 +21,18 @@ from scvi.model.base import (
 
 from scvi.data import AnnDataManager
 from scvi.utils import setup_anndata_dsp
+from scvi.train._trainingplans import TrainingPlan
 from scvi.data.fields import (
+    CategoricalObsField,
     LayerField,
     ObsmField,
 )
 
 from .model import CellCapModel
 from typing import Optional, Union, Literal
-from scvi.train._trainingplans import TrainingPlan
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
-
 
 class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def __init__(
@@ -71,8 +71,8 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             latent_distribution,
         )
 
-        self.use_batch_norm = use_batch_norm
         self.n_latent = n_latent
+        self.use_batch_norm = use_batch_norm
         self.init_params_ = self._get_init_params(locals())
 
     @torch.no_grad()
@@ -93,19 +93,19 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return loadings
 
     def get_pert_loadings(self) -> pd.DataFrame:
-        w = torch.matmul(self.module.H_pq.sigmoid(), self.module.w_qk)
+        w = torch.matmul(F.softplus(self.module.H_pq), self.module.w_qk.tanh())
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
     def get_resp_loadings(self) -> pd.DataFrame:
-        w = self.module.w_qk
+        w = self.module.w_qk.tanh()
         loadings = torch.Tensor.cpu(w).detach().numpy()
 
         return loadings
 
-    def get_donor_loadings(self) -> pd.DataFrame:
-        w = self.module.w_donor_dk
+    def get_covar_loadings(self) -> pd.DataFrame:
+        w = self.module.w_covar_dk
         loadings = torch.Tensor.cpu(w).detach().numpy()
         loadings = pd.DataFrame(loadings.T)
 
@@ -113,13 +113,12 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     def get_h(self) -> pd.DataFrame:
         w = F.softplus(self.module.H_pq)
-        w = self.module.H_pq.sigmoid()
         w = torch.Tensor.cpu(w).detach().numpy()
 
         return w
 
     def get_ard(self) -> pd.DataFrame:
-        w = self.module.log_alpha_pq.sigmoid()
+        w = self.module.alpha_q.sigmoid()
         w = torch.Tensor.cpu(w).detach().numpy()
 
         return w
@@ -145,6 +144,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             outputs = self.module.inference(**inference_inputs)
             out = outputs["H_attn"]
             h_attn.append(out.detach().cpu())
+
         return np.array(torch.cat(h_attn))
 
     @torch.no_grad()
@@ -192,14 +192,10 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             a = outputs["attn"]
             attn += [a.cpu()]
 
-        return (
-            np.array(torch.cat(embedding)),
-            np.array(torch.cat(h)),
-            np.array(torch.cat(attn)),
-        )
+        return np.array(torch.cat(embedding)), np.array(torch.cat(h)), np.array(torch.cat(attn))
 
     @torch.no_grad()
-    def get_donor_embedding(
+    def get_covar_embedding(
         self,
         adata: Optional[AnnData] = None,
         batch_size: Optional[int] = None,
@@ -215,8 +211,8 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
-            delta_z_donor = outputs["delta_z_donor"]
-            embedding += [delta_z_donor.cpu()]
+            delta_z_covar = outputs["delta_z_covar"]
+            embedding += [delta_z_covar.cpu()]
         return np.array(torch.cat(embedding))
 
     @torch.no_grad()
@@ -286,6 +282,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             n_steps_kl_warmup=n_steps_kl_warmup,
             optimizer="AdamW",
         )
+
         if plan_kwargs is not None:
             plan_kwargs.update(update_dict)
         else:
@@ -303,16 +300,17 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             train_size=train_size,
             validation_size=validation_size,
             batch_size=batch_size,
+            use_gpu=use_gpu,
         )
 
-        training_plan = TrainingPlan(self.module, **plan_kwargs)
+        training_plan = TrainingPlan(self.module, reduce_lr_on_plateau=True, **plan_kwargs) #
 
         runner = TrainRunner(
             self,
             training_plan=training_plan,
             data_splitter=data_splitter,
             max_epochs=max_epochs,
-            accelerator="gpu" if use_gpu else "cpu",
+            use_gpu=use_gpu,
             early_stopping=early_stopping,
             check_val_every_n_epoch=check_val_every_n_epoch,
             early_stopping_monitor="reconstruction_loss_validation",
@@ -328,7 +326,8 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         adata: AnnData,
         layer: str,
         target_key: str,
-        donor_key: str,
+        covar_key: str,
+        # weight_key: str,
         **kwargs,
     ):
         """
@@ -337,15 +336,14 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         Parameters
         ----------
         %(param_layer)s
-        target_key: Key for adata.obsm containing a one-hot encoding of
-            perturbation information
-        donor_key: Key for adata.obsm containing a one-hot encoding of donor
+        %(param_target_key)s
+        %(param_donor_key)s
         """
         setup_method_args = cls._get_setup_method_args(**locals())
         anndata_fields = [
             LayerField(REGISTRY_KEYS.X_KEY, layer, is_count_data=True),
-            ObsmField(registry_key="TARGET_KEY", attr_key=target_key),
-            ObsmField(registry_key="DONOR_KEY", attr_key=donor_key),
+            ObsmField(registry_key="TARGET_KEY", obsm_key=target_key),
+            ObsmField(registry_key="COVAR_KEY", obsm_key=covar_key),
         ]
         adata_manager = AnnDataManager(
             fields=anndata_fields, setup_method_args=setup_method_args
