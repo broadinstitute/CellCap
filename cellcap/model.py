@@ -1,11 +1,12 @@
 """The CellCap model"""
 
 import logging
+import numpy as np
 
 import torch
 import torch.nn.functional as F
-from torch.distributions import Normal, Poisson, Laplace
 from torch.distributions import kl_divergence as kl
+from torch.distributions import Normal, Poisson, Laplace
 
 from scvi import REGISTRY_KEYS
 from scvi.nn import Encoder, one_hot
@@ -16,7 +17,6 @@ from typing import Dict, Literal
 from .mixins import CellCapMixin
 from .nn.advclassifier import AdvNet
 from .nn.decoder import LinearDecoderSCVI
-
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         n_latent: int = 10,
         n_drug: int = 3,
         n_prog: int = 5,
-        n_donor: int = 5,
+        n_covar: int = 5,
         n_layers_encoder: int = 1,
         n_head: int = 1,
         dropout_rate: float = 0.25,
@@ -45,6 +45,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         bias: bool = False,
     ):
         super().__init__()
+        self.n_input = n_input
         self.dispersion = dispersion
         self.n_latent = n_latent
         self.log_variational = log_variational
@@ -54,7 +55,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         self.encode_covariates = encode_covariates
         self.n_drug = n_drug
         self.n_prog = n_prog
-        self.n_donor = n_donor
+        self.n_covar = n_covar
         self.n_head = n_head
 
         if self.dispersion == "gene":
@@ -71,30 +72,27 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             )
 
         # p stands for perturbation
-        # q stands for the dimension of transcriptional response
         # k stands for the dimension of latent space
-        # d stands for the number of donors
+        # d stands for the number of categorical covariates
+        # q stands for the dimension of transcriptional response
 
-        self.alpha_q = torch.nn.Parameter(torch.zeros(1, n_prog))
-        self.H_pq = torch.nn.Parameter(torch.ones(n_drug, n_prog))
-        self.log_alpha_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
+        self.alpha_q = torch.nn.Parameter(torch.zeros(n_prog))
+        self.H_pq = torch.nn.Parameter(torch.zeros(n_drug, n_prog))
+
         w_qk = torch.empty(n_prog, n_latent)
         self.w_qk = torch.nn.Parameter(
-            torch.nn.init.xavier_normal_(
-                w_qk, gain=torch.nn.init.calculate_gain("relu")
-            )
+            torch.nn.init.xavier_normal_(w_qk,
+                                         gain=torch.nn.init.calculate_gain('relu'))
         )
-        w_donor_dk = torch.empty(n_donor, n_latent)
-        self.w_donor_dk = torch.nn.Parameter(
-            torch.nn.init.xavier_normal_(
-                w_donor_dk, gain=torch.nn.init.calculate_gain("relu")
-            )
+        w_covar_dk = torch.empty(n_covar, n_latent)
+        self.w_covar_dk = torch.nn.Parameter(
+            torch.nn.init.xavier_normal_(w_covar_dk,
+                                         gain=torch.nn.init.calculate_gain('relu'))
         )
-        H_key = torch.empty(n_drug, n_prog, n_latent, n_head)
+        H_key = torch.empty(n_drug,n_prog,n_latent,n_head)
         self.H_key = torch.nn.Parameter(
-            torch.nn.init.xavier_normal_(
-                H_key, gain=torch.nn.init.calculate_gain("relu")
-            )
+            torch.nn.init.xavier_normal_(H_key,
+                                         gain=torch.nn.init.calculate_gain('relu'))
         )
 
         self.z_encoder = Encoder(
@@ -125,12 +123,12 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
     def _get_inference_input(self, tensors):
         x = tensors[REGISTRY_KEYS.X_KEY]
         p = tensors["TARGET_KEY"]
-        donor = tensors["DONOR_KEY"]
+        covar = tensors["COVAR_KEY"]
 
         input_dict = dict(
             x=x,
             p=p,
-            donor=donor,
+            covar=covar,
         )
         return input_dict
 
@@ -138,18 +136,18 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         library = inference_outputs["library"]
         z_basal = inference_outputs["z_basal"]
         delta_z = inference_outputs["delta_z"]
-        delta_z_donor = inference_outputs["delta_z_donor"]
+        delta_z_covar = inference_outputs["delta_z_covar"]
 
         input_dict = dict(
             z_basal=z_basal,
             delta_z=delta_z,
-            delta_z_donor=delta_z_donor,
+            delta_z_covar=delta_z_covar,
             library=library,
         )
         return input_dict
 
     @auto_move_data
-    def inference(self, x, p, donor, n_samples=1):
+    def inference(self, x, p, covar, n_samples=1):
         """
         High level inference method.
 
@@ -162,11 +160,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         encoder_input = x_
 
         h = torch.matmul(p, F.softplus(self.H_pq))
-        alpha_ip = torch.matmul(p, self.log_alpha_pq).sigmoid()
-        alpha_glb = torch.matmul(torch.max(p, 1)[0].view(-1, 1), self.alpha_q).sigmoid()
 
         qz_m, qz_v, z_basal = self.z_encoder(encoder_input)
-        delta_z_donor = torch.matmul(donor, self.w_donor_dk)
+        delta_z_covar = torch.matmul(covar, self.w_covar_dk)
 
         if n_samples > 1:
             qz_m = qz_m.unsqueeze(0).expand((n_samples, qz_m.size(0), qz_m.size(1)))
@@ -178,59 +174,47 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             )
 
         # Attention
-        key = torch.matmul(
-            p,
-            self.H_key[:, :, :, 0].reshape((self.n_drug, self.n_prog * self.n_latent)),
-        )
-        key = key.reshape((p.size(0), self.n_prog, self.n_latent))
+        attn = []
+        key = torch.matmul(p,self.H_key[:,:,:,0].reshape((self.n_drug,self.n_prog*self.n_latent)))
+        key = key.reshape((p.size(0),self.n_prog,self.n_latent))
         score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
         score = score.view(-1, self.n_prog)
-        attn = F.softmax(score, dim=1)
-        for i in range(1, self.n_head):
-            key = torch.matmul(
-                p,
-                self.H_key[:, :, :, i].reshape(
-                    (self.n_drug, self.n_prog * self.n_latent)
-                ),
-            )
-            key = key.reshape((p.size(0), self.n_prog, self.n_latent))
+        attn += [F.softmax(score, dim=1)]
+        for i in range(1,self.n_head):
+            key = torch.matmul(p,self.H_key[:,:,:,i].reshape((self.n_drug,self.n_prog*self.n_latent)))
+            key = key.reshape((p.size(0),self.n_prog,self.n_latent))
             score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
             score = score.view(-1, self.n_prog)
-            a = F.softmax(score, dim=1)
-            attn = attn + a
+            attn += [F.softmax(score, dim=1)]
+        attn = torch.max(torch.stack(attn,dim=2),2)[0]
         H_attn = attn * h
 
         prob = self.discriminator(z_basal)
-        delta_z = torch.matmul(H_attn, self.w_qk)
+        delta_z = torch.matmul(H_attn, self.w_qk.tanh())
 
         outputs = dict(
             z_basal=z_basal,
             qz_m=qz_m,
             qz_v=qz_v,
             delta_z=delta_z,
-            delta_z_donor=delta_z_donor,
+            delta_z_covar=delta_z_covar,
             library=library,
             h=h,
-            alpha_ip=alpha_ip,
-            alpha_glb=alpha_glb,
             prob=prob,
             attn=attn,
             H_attn=H_attn,
-            alpha_pq=self.log_alpha_pq.detach().sigmoid(),
         )
+
         return outputs
 
     @auto_move_data
-    def generative(
-        self, z_basal, delta_z, delta_z_donor, library, y=None, transform_batch=None
-    ):
+    def generative(self, z_basal, delta_z, delta_z_covar, library, y=None, transform_batch=None):
         """Runs the generative model."""
         # Likelihood distribution
 
-        z = z_basal + delta_z + delta_z_donor
+        z = z_basal + delta_z + delta_z_covar
         decoder_input = z
 
-        # for scvi
         categorical_input = tuple()
         size_factor = library
 
@@ -241,9 +225,10 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             *categorical_input,
         )
         if self.dispersion == "gene-label":
+            # px_r gets transposed - last dimension is nb genes
             px_r = F.linear(
                 one_hot(y, self.n_labels), self.px_r
-            )  # px_r gets transposed - last dimension is nb genes
+            )
         elif self.dispersion == "gene":
             px_r = self.px_r
 
@@ -264,14 +249,13 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         tensors,
         inference_outputs,
         generative_outputs,
-        kl_weight: float = 1.0,
-        h_kl_weight: float = 1.0,
-        g_kl_weight: float = 0.2,
-        rec_weight: float = 1.0,
         lamda: float = 1.0,
+        kl_weight: float = 1.0,
+        rec_weight: float = 2.0, # 1.0, #
+        ard_kl_weight: float = 1.0, # 0.2, #
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
-        perturbations = tensors["TARGET_KEY"]
+        p = tensors["TARGET_KEY"]
 
         qz_m = inference_outputs["qz_m"]
         qz_v = inference_outputs["qz_v"]
@@ -279,58 +263,55 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         mean = torch.zeros_like(qz_m)
         scale = torch.ones_like(qz_v)
 
+        H_attn = inference_outputs["H_attn"][p.sum(1)>0,:]
+        laploc = torch.zeros_like(H_attn)
+
         # reconstruction loss
         rec_loss = -generative_outputs["px"].log_prob(x).sum(-1) * rec_weight
 
         # KL divergence
-        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
+        kl_divergence_z = kl(
+            Normal(qz_m, torch.sqrt(qz_v)),
+            Normal(mean, scale)).sum(
             dim=1
         )
 
-        kl_divergence_h = -1 * (
-            Laplace(loc=0.0, scale=inference_outputs["alpha_ip"])
-            .log_prob(inference_outputs["H_attn"])
+        kl_divergence_ard = -1 * (
+            Laplace(loc=laploc, scale=self.alpha_q.sigmoid())
+            .log_prob(H_attn)
             .sum(-1)
-        )
-
-        kl_divergence_g = -1 * (
-            Laplace(loc=0.0, scale=inference_outputs["alpha_glb"])
-            .log_prob(inference_outputs["H_attn"])
-            .sum(-1)
-        )
+        ) * ard_kl_weight
 
         weighted_kl_local = (
             kl_weight * kl_divergence_z
-            + h_kl_weight * kl_divergence_h
-            + g_kl_weight * kl_divergence_g
-        )
-        adv_loss = (
-            torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], perturbations)
-            * lamda
         )
 
-        loss = torch.mean(rec_loss + weighted_kl_local) + adv_loss
+        adv_loss = torch.nn.BCELoss(reduction='sum')(
+            inference_outputs["prob"],p
+        ) * lamda
+
+        loss = (
+            torch.mean(
+                rec_loss + weighted_kl_local
+            )
+            + torch.mean(kl_divergence_ard)
+            + adv_loss
+        )
 
         kl_local = dict(
             kl_divergence_z=kl_divergence_z,
-            kl_divergence_h=kl_divergence_h,
-            kl_divergence_g=kl_divergence_g,
         )
 
         # extra metrics for logging
         extra_metrics = {
             "adv_loss": adv_loss,
-            "kl_divergence_h_mean": kl_divergence_h.mean(),
-            "kl_divergence_g_mean": kl_divergence_g.mean(),
         }
-        alpha_pq_dict = logging_dict_from_tensor(inference_outputs["alpha_pq"], "alpha")
-        extra_metrics.update(alpha_pq_dict)
 
         return LossOutput(
             loss=loss,
-            reconstruction_loss=rec_loss,
             kl_local=kl_local,
             extra_metrics=extra_metrics,
+            reconstruction_loss=rec_loss,
         )
 
 
