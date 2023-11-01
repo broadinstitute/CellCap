@@ -39,14 +39,6 @@ mechanism
 From an engineering standpoint, the code in this repository is built on top of 
 [`scvi-tools`](https://scvi-tools.org).
 
-## Related work
-
-- [Lotfollahi ... Theis. "Learning interpretable cellular responses to 
-complex perturbations in high-throughput screens." 
-bioRxiv (2022)](https://www.biorxiv.org/content/10.1101/2021.04.14.439903v2)
-- [Lotfollahi, Wolf, Theis. "scGen predicts single-cell perturbation 
-responses." Nature Methods (2019)](https://www.nature.com/articles/s41592-019-0494-8)
-
 ## Who
 
 Yang Xu
