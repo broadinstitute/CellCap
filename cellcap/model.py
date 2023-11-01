@@ -175,12 +175,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
 
         # Attention
         attn = []
-        key = torch.matmul(p,self.H_key[:,:,:,0].reshape((self.n_drug,self.n_prog*self.n_latent)))
-        key = key.reshape((p.size(0),self.n_prog,self.n_latent))
-        score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
-        score = score.view(-1, self.n_prog)
-        attn += [F.softmax(score, dim=1)]
-        for i in range(1,self.n_head):
+        for i in range(self.n_head):
             key = torch.matmul(p,self.H_key[:,:,:,i].reshape((self.n_drug,self.n_prog*self.n_latent)))
             key = key.reshape((p.size(0),self.n_prog,self.n_latent))
             score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
@@ -251,8 +246,8 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         generative_outputs,
         lamda: float = 1.0,
         kl_weight: float = 1.0,
-        rec_weight: float = 2.0, # 1.0, #
-        ard_kl_weight: float = 1.0, # 0.2, #
+        rec_weight: float = 2.0,
+        ard_kl_weight: float = 0.2,
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
         p = tensors["TARGET_KEY"]
