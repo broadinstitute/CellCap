@@ -18,6 +18,48 @@ def init_weights(m):
         torch.nn.init.xavier_normal_(m.weight)
         torch.nn.init.zeros_(m.bias)
 
+def downsample(adata,column="cell_type",random_state=None,
+               min_cells=15,keep_small_categories=False):
+    
+    counts = adata.obs[column].value_counts(sort=False)
+    min_size = min(counts[counts >= min_cells])
+    sample_selection = None
+    for sample, num_cells in counts.items():
+        if num_cells <= min_cells:
+            if keep_small_categories:
+                sel = adata.obs.index.isin(
+                    adata.obs[adata.obs[column] == sample].index)
+            else:
+                continue
+        else:
+            sel = adata.obs.index.isin(
+                adata.obs[adata.obs[column] == sample]
+                .sample(min_size, random_state=random_state)
+                .index
+            )
+        if sample_selection is None:
+            sample_selection = sel
+        else:
+            sample_selection |= sel
+    return adata[sample_selection].copy()
+
+def cosine_distance(matrix, vector):
+    dot_product = np.dot(matrix, vector)
+    matrix_magnitude = np.linalg.norm(matrix, axis=1)
+    vector_magnitude = np.linalg.norm(vector)
+    cosine_distances = dot_product / (matrix_magnitude * vector_magnitude)
+    
+    return cosine_distances
+
+def identify_top_perturbed_genes(pert_loading=None, prog_index=1):
+    df = pert_loading.iloc[:,(prog_index-1)].values
+    zscore = stats.zscore(df)
+    pval = stats.norm.sf(abs(zscore))*2
+    ranked_df = pd.DataFrame.from_dict({'Zscore':zscore,'Pval':pval})
+    ranked_df.index = pert_loading.index
+    
+    return ranked_df
+
 
 def permute_dims(z):
     assert z.dim() == 2
