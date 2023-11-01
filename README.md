@@ -1,4 +1,6 @@
-# Compositional perturbation VAEs for scRNA-seq
+# CellCap
+
+CellCap is a variational autoencoder to model interpretable correspondence between cellular identity and perturbation response for single-cell data
 
 ## What
 
