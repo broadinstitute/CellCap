@@ -20,8 +20,6 @@ For a step-by-step tutorial on a simplified example dataset, see the
 For details on input arguments and the output file format,
 see the :ref:`Reference <reference>` section.
 
-For troubleshooting and an FAQ, see the :ref:`Troubleshooting <troubleshooting>` section.
-
 .. toctree::
    :maxdepth: 1
    
@@ -30,8 +28,6 @@ For troubleshooting and an FAQ, see the :ref:`Troubleshooting <troubleshooting>`
    usage/index
    tutorial/index
    reference/index
-   troubleshooting/index
    contributing/index
    citation/index
    reference/license/index
-   changelog/index
