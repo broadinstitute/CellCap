@@ -12,7 +12,7 @@
 #
 import os
 import sys
-from cellbender.base_cli import get_version
+# from cellbender.base_cli import get_version
 
 
 dir_, _ = os.path.split(__file__)
@@ -21,13 +21,13 @@ sys.path.insert(0, root_dir)
 
 # -- Project information -----------------------------------------------------
 
-project = 'CellBender'
-copyright = '2019, Data Sciences Platform (DSP), Broad Institute'
-author = 'Stephen Fleming, Mehrtash Babadi'
+project = 'CellCap'
+copyright = '2023, Data Sciences Platform (DSP), Broad Institute'
+author = 'Yang Xu, Stephen Fleming, and Mehrtash Babadi'
 
 # The full version, including alpha/beta/rc tags
-version = get_version()
-release = get_version()
+# version = get_version()
+# release = get_version()
 
 # -- General configuration ---------------------------------------------------
 

@@ -1,16 +1,16 @@
-Welcome to CellBender's documentation!
+Welcome to CellCap's documentation!
 ======================================
 
 .. image:: /_static/design/logo_250_185.png
    :height: 185 px
 
-*CellBender* is a software package for eliminating technical artifacts from high-throughput
-single-cell RNA sequencing (scRNA-seq) data.
+*CellCap* is a variational autoencoder to model correspondence between cellular
+identity and perturbation response.
 
 For a brief survey of the package and its current capabilities, you can read
 the :ref:`Introduction <introduction>`.
 
-For an explanation of when and how and why to use CellBender in your analysis
+For an explanation of when and how and why to use CellCap in your analysis
 pipeline, along with example code, how to choose parameter settings, and
 tips on quality control, read the :ref:`Usage <usage>` section.
 
