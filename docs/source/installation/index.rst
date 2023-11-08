@@ -8,7 +8,7 @@ Via pip
 
 Python packages can be conveniently installed from the Python Package Index (PyPI)
 using `pip install <https://pip.pypa.io/en/stable/cli/pip_install/>`_.
-CellBender is `available on PyPI <https://pypi.org/project/cellbender/>`_
+CellCap is `available on PyPI <https://pypi.org/project/cellbender/>`_
 and can be installed via
 
 .. code-block:: console
@@ -28,7 +28,7 @@ packages you may have installed.
 
   $ conda create -n cellcap python=3.9
   $ conda activate cellcap
-  (cellbender) $ pip install cellcap
+  (cellcap) $ pip install cellcap
 
 
 Installation from source
@@ -45,22 +45,22 @@ Install the `pytables <https://www.pytables.org>`_ module:
 
 .. code-block:: console
 
-  (cellbender) $ conda install -c anaconda pytables
+  (cellcap) $ conda install -c anaconda pytables
 
 Install `pytorch <https://pytorch.org>`_ via
 `these instructions <https://pytorch.org/get-started/locally/>`_:
 
 .. code-block:: console
 
-   (cellbender) $ pip install torch
+   (cellcap) $ pip install torch
 
 and ensure that your installation is appropriate for your hardware (i.e. that
 the relevant CUDA drivers get installed and that ``torch.cuda.is_available()``
 returns ``True`` if you have a GPU available.
 
-Clone this repository and install CellBender (in editable ``-e`` mode):
+Clone this repository and install CellCap (in editable ``-e`` mode):
 
 .. code-block:: console
 
-   (cellbender) $ git clone https://github.com/broadinstitute/CellBender.git
-   (cellbender) $ pip install -e CellBender
+   (cellcap) $ git clone https://github.com/broadinstitute/CellCap.git
+   (cellcap) $ pip install -e CellCap

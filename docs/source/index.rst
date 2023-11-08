@@ -7,12 +7,12 @@ Welcome to CellCap's documentation!
 *CellCap* is a variational autoencoder to model correspondence between cellular
 identity and perturbation response.
 
-For a brief survey of the package and its current capabilities, you can read
+To determine if CellCap is right for your perturbation data, you can read
 the :ref:`Introduction <introduction>`.
 
 
-For a step-by-step tutorial on a simplified example dataset, see the
-:ref:`Quick start tutorial <quick start tutorial>` section.
+For a step-by-step tutorial on a simulation dataset and real single-cell perturbation, see the
+:ref:`Tutorial <tutorial>` section.
 
 
 .. toctree::
@@ -21,5 +21,4 @@ For a step-by-step tutorial on a simplified example dataset, see the
    introduction/index
    installation/index
    tutorial/index
-   contributing/index
    citation/index
