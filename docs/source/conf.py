@@ -42,7 +42,8 @@ extensions = [
     'sphinxarg.ext',
     'sphinx_autodoc_typehints',
     'sphinxcontrib.programoutput',
-    'sphinx.ext.intersphinx'
+    'sphinx.ext.intersphinx',
+    'nbsphinx',
 ]
 
 master_doc = 'index'
