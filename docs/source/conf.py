@@ -44,6 +44,7 @@ extensions = [
     'sphinxcontrib.programoutput',
     'sphinx.ext.intersphinx',
     'nbsphinx',
+    'myst_parser',
 ]
 
 master_doc = 'index'
