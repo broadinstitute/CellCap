@@ -13,4 +13,5 @@ identity and perturbation response.
    introduction/index
    installation/index
    notebooks/CellCap_simulation_data
+   notebooks/CellCap_human_monocytes
    citation/index
