@@ -1,6 +1,6 @@
 .. _introduction:
 
-Installation
+Introduction
 ============
 
 What is CellCap?
