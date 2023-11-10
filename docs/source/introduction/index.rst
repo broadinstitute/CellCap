@@ -1,10 +1,10 @@
 .. _introduction:
 
-Introduction
-===================
+Installation
+============
 
 What is CellCap?
-===================
+----------------
 
 CellCap is a variational autoencoder for analyzing single-cell perturbation data. The primary goal of CellCap is
 modeling the correspondence between cellular identity and perturbation response. To understand this correspondence,
@@ -24,7 +24,7 @@ further represents the relevance of each basal state `z_basal` to this perturbat
 perturbation program `w`, `H` presents the relevance of a perturbation condition to a perturbation program.
 
 Is CellCap right for your data?
------------------
+-------------------------------
 
 Before you proceed to run CellCap, it's always important to ask if CellCap is right for your perturbation data. For
 CellCap to accurately model the correspondence between cellular identity and perturbation response, there are a few
@@ -44,7 +44,7 @@ states that are not present in control group.
 cellular identities.
 
 What biological investigations do CellCap aim to address?
--------
+---------------------------------------------------------
 
 Understanding the correspondence between cellular identity and perturbation response would facilitate multiple
 biological investigations. We list a few suggested questions here, and users can use explainable components in CellCap
@@ -67,6 +67,6 @@ perturbation, CellCap first infers its basal state `z_basal`. Then, multiplying 
 can reveal how large perturbation program is in a cell state.
 
 More information
--------
+----------------
 
 For detailed scope and discussion about CellCap, please see our manuscript.
