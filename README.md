@@ -71,31 +71,14 @@ Quick installation
 ------------------
 
 CellCap can be installed via
-
-.. code-block:: console
-
-  $ pip install cellcap
-
-(and we recommend installing in its own ``conda`` environment to prevent
-conflicts with other software).
-
-CellBender is run as a command-line tool, as in
-
-.. code-block:: console
-
-  (cellbender) $ cellbender remove-background \
-        --cuda \
-        --input my_raw_count_matrix_file.h5 \
-        --output my_cellbender_output_file.h5
-
-See `the usage documentation <https://cellbender.readthedocs.io/en/latest/usage/index.html>`_
-for details.
+    
+    pip install cellcap
+    
 
 Citing CellCap
 --------------
 
-If you use CellBender in your research (and we hope you will), please consider
-citing our paper in Nature Methods:
+If you use CellCap in your research, please consider citing our paper:
 
 Yang Xu, Stephen Fleming, Matthew Tegtmeyer, Steven A. McCarroll, and Mehrtash Babadi.
 Modeling interpretable correspondence between cellular identity and perturbation response with CellCap.
