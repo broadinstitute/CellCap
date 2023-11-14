@@ -7,4 +7,4 @@ def read(rel_path):
         return fp.read()
 
 def get_version() -> str:
-    return read('VERSION.txt').splitlines()[0]
+    return read('VERSION').splitlines()[0]
