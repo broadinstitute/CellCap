@@ -11,6 +11,9 @@ CellCap is a variational autoencoder for analyzing single-cell perturbation data
 modeling the correspondence between cellular identity and perturbation response. To understand this correspondence,
 CellCap was built in several explainable components:
 
+.. image:: docs/source/_static/design/Figure1.jpg
+   :alt: CellCap architecture
+
 1. Basal state `z_basal`: basal state `z_basal` can be understood as cell state in latent space where only intrinsic
 cellular identity is preserved.
 
@@ -50,6 +53,9 @@ What biological investigations do CellCap aim to address?
 Understanding the correspondence between cellular identity and perturbation response would facilitate multiple
 biological investigations. We list a few suggested questions here, and users can use explainable components in CellCap
 to address them.
+
+.. image:: docs/source/_static/design/Figure2.jpg
+   :alt: CellCap application
 
 1. Do perturbations behave similarly or differently: Use of `H` alone could describe a general relationship between any
 two perturbations. The same question can be asked again under a specific cellular context. Combining `A` and `H` can be
