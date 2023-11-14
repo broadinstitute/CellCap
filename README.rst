@@ -16,6 +16,7 @@ CellCap can be installed via
 (and we recommend installing in its own ``conda`` environment to prevent
 conflicts with other software).
 
+
 Advanced installation
 ---------------------
 
@@ -50,8 +51,7 @@ Clone this repository and install CellBender (in editable ``-e`` mode):
 Citing CellCap
 -----------------
 
-If you use CellBender in your research (and we hope you will), please consider
-citing our paper in Nature Methods:
+If you use CellCap in your research, please consider citing our paper:
 
 Yang Xu, Stephen Fleming, Matthew Tegtmeyer, Steven A. McCarroll, and Mehrtash Babadi.
 Modeling interpretable correspondence between cellular identity and perturbation response with CellCap.
