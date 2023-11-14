@@ -1,6 +1,7 @@
 """Utility functions"""
 
 import numpy as np
+import pandas as pd
 
 import torch
 import torch.nn.functional as F
@@ -8,8 +9,6 @@ import torch.nn.functional as F
 import anndata
 from scvi.data import synthetic_iid
 
-def get_version() -> str:
-    return read('VERSION.txt').splitlines()[0]
 
 def init_weights(m):
     classname = m.__class__.__name__
@@ -20,8 +19,7 @@ def init_weights(m):
         torch.nn.init.xavier_normal_(m.weight)
         torch.nn.init.zeros_(m.bias)
 
-def downsample(adata,column="cell_type",random_state=None,
-               min_cells=15,keep_small_categories=False):
+def downsample(adata, column="cell_type", random_state=None, min_cells=15, keep_small_categories=False):
     
     counts = adata.obs[column].value_counts(sort=False)
     min_size = min(counts[counts >= min_cells])
@@ -54,10 +52,10 @@ def cosine_distance(matrix, vector):
     return cosine_distances
 
 def identify_top_perturbed_genes(pert_loading=None, prog_index=1):
-    df = pert_loading.iloc[:,(prog_index-1)].values
+    df = pert_loading.iloc[:, (prog_index-1)].values
     zscore = stats.zscore(df)
     pval = stats.norm.sf(abs(zscore))*2
-    ranked_df = pd.DataFrame.from_dict({'Zscore':zscore,'Pval':pval})
+    ranked_df = pd.DataFrame.from_dict({'Zscore': zscore, 'Pval': pval})
     ranked_df.index = pert_loading.index
     
     return ranked_df
