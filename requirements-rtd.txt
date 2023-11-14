@@ -1,0 +1,8 @@
+sphinx>=2.1
+sphinx-rtd-theme
+sphinx-autodoc-typehints
+sphinxcontrib-programoutput
+sphinx-argparse
+nbsphinx
+myst_parser
+jupyter
