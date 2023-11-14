@@ -55,11 +55,11 @@ two perturbations. The same question can be asked again under a specific cellula
 used to understand if different perturbations cause similar cellular responses in given a cell population.
 
 2. What transcriptional responses can a perturbation induce: `H` also tells which perturbation programs `w` are relevant
-to a perturbation. Each perturbation program`w` then aims to reveal a set of genes that are concurrently activated or
+to a perturbation. Each perturbation program `w` then aims to reveal a set of genes that are concurrently activated or
 deactivated in perturbed cells.
 
 3. Is a certain transcriptional response posed by a perturbation is cell-state specific: given perturbation program `w`
-of interest, basal state `z_basal` can be sorted by matching perturbation key 'K'. This is the key question CellCap
+of interest, basal state `z_basal` can be sorted by matching perturbation key `K`. This is the key question CellCap
 tries to address: the correspondence between cellular identity and perturbation response.
 
 4. How large is this transcriptional response in this cell state: given a perturbed cell that was treated with a

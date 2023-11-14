@@ -3,16 +3,16 @@ requires = ["setuptools>=61.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cellbender"
-authors = [{name = "Stephen Fleming"}, {name = "Mehrtash Babadi"}]
+name = "cellcap"
+authors = [{name = "Yang Xu"}, {name = "Stephen Fleming"}, {name = "Mehrtash Babadi"}]
 license = {text = "BSD (3-Clause)"}
-description = "A software package for eliminating technical artifacts from high-throughput single-cell RNA sequencing (scRNA-seq) data"
-keywords = ["scRNA-seq", "bioinformatics"]
+description = "A variational autoencoder to model correspondence between cellular identity and perturbation response in single-cell data"
+keywords = ["scRNA-seq", "perturbation", "deep learning"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: BSD License",
-    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.9",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dynamic = ["version", "dependencies", "optional-dependencies"]
@@ -22,11 +22,8 @@ file = "README.rst"
 content-type = "text/x-rst"
 
 [project.urls]
-Homepage = "http://github.com/broadinstitute/CellBender"
-Documentation = "http://cellbender.readthedocs.io"
-
-[project.scripts]
-cellbender = "cellbender.base_cli:main"
+Homepage = "http://github.com/broadinstitute/CellCap"
+Documentation = "http://cellcap.readthedocs.io"
 
 [tool.setuptools]
 zip-safe = false
@@ -36,10 +33,10 @@ include-package-data = true
 find = {namespaces = false}
 
 [tool.setuptools.dynamic]
-version = {attr = "cellbender.__version__"}
+version = {attr = "cellcap.__version__"}
 dependencies = {file = ["requirements.txt"]}
 optional-dependencies.dev = {file = ["requirements-dev.txt"]}
 optional-dependencies.docs = {file = ["requirements-rtd.txt"]}
 
 [tool.setuptools.package-data]
-"*" = ["cellbender.remove_background.report.ipynb", "cellbender.VERSION.txt"]
+"*" = ["cellcap.VERSION.txt"]
