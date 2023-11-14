@@ -1,50 +1,58 @@
-# CellCap
+CellCap
+==========
 
-CellCap is a variational autoencoder to model interpretable correspondence between cellular identity and perturbation response for single-cell data
+CellCap is a variational autoencoder for modeling correspondence between cellular identity and perturbation response
+in single-cell data.
 
-## What
+Installation
+----------------------
 
-Attempt to extract interpretable biological insights from scRNA-seq perturbation 
-experiments.
+CellCap can be installed via
 
-Ideally we will be able to learn something that a simple linear model using 
-pseudobulk measurements could not.
+.. code-block:: console
 
-## Why
+  $ pip install cellcap
 
-We have many scRNA-seq experiments which apply chemical and genetic 
-perturbations to cells. The idea is to learn from these perturbations.
+(and we recommend installing in its own ``conda`` environment to prevent
+conflicts with other software).
 
-Some in the field think that understanding perturbations could be a route to 
-predicting drug efficacy (as in "find a drug perturbation that acts in the 
-opposite way as a genetic perturbation or disease condition").
+Advanced installation
+---------------------
 
-## How
+From source for development
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-We are attempting to build on the work of Lotfollahi 2022 (see below) to create 
-a compositional perturbation variational autoencoder, with a few important 
-differences.  The "linear" model for latent space perturbation arithmetic is 
-limiting.  In the case of a linear decoder (which we want for interpretability), 
-linear latent space arithmetic restricts us to completely linear models.  The 
-real idea here is to allow complex arithmetic in the latent space, rather 
-than additive models, in order to enable the use of an interpretable linear 
-decoder.
+Create a conda environment and activate it:
 
-Novelty:
+.. code-block:: console
 
-- Interpretability via a linear decoder
-- Complex interactions between cell state and perturbation via an attention 
-mechanism
+  $ conda create -n cellcap python=3.9
+  $ conda activate cellcap
 
-From an engineering standpoint, the code in this repository is built on top of 
-[`scvi-tools`](https://scvi-tools.org).
+Install `pytorch <https://pytorch.org>`_ via
+`these instructions <https://pytorch.org/get-started/locally/>`_, for example:
 
-## Who
+.. code-block:: console
 
-Yang Xu
+   (cellcap) $ pip install torch
 
-Stephen Fleming
+and ensure that your installation is appropriate for your hardware (i.e. that
+the relevant CUDA drivers get installed and that ``torch.cuda.is_available()``
+returns ``True`` if you have a GPU available.
 
-Mehrtash Babadi
+Clone this repository and install CellBender (in editable ``-e`` mode):
 
-_Cellarium .. Methods Group .. Data Sciences Platform .. Broad Institute_
+.. code-block:: console
+
+   (cellcap) $ git clone https://github.com/broadinstitute/CellCap.git
+   (cellcap) $ pip install -e CellCap
+
+Citing CellCap
+-----------------
+
+If you use CellBender in your research (and we hope you will), please consider
+citing our paper in Nature Methods:
+
+Yang Xu, Stephen Fleming, Matthew Tegtmeyer, Steven A. McCarroll, and Mehrtash Babadi.
+Modeling interpretable correspondence between cellular identity and perturbation response with CellCap.
+*bioRxiv*, 2023. https://doi.org/10.1038/s41592-023-01943-7
