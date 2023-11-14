@@ -1,7 +1,6 @@
 """The CellCap model"""
 
 import logging
-import numpy as np
 
 import torch
 import torch.nn.functional as F
@@ -57,6 +56,12 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         self.n_prog = n_prog
         self.n_covar = n_covar
         self.n_head = n_head
+
+        # hyperparameter used in training
+        self.lamda = lamda
+        self.kl_weight = kl_weight
+        self.rec_weight = rec_weight
+        self.ard_kl_weight = ard_kl_weight
 
         if self.dispersion == "gene":
             self.px_r = torch.nn.Parameter(torch.randn(n_input))
@@ -176,12 +181,12 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # Attention
         attn = []
         for i in range(self.n_head):
-            key = torch.matmul(p,self.H_key[:,:,:,i].reshape((self.n_drug,self.n_prog*self.n_latent)))
-            key = key.reshape((p.size(0),self.n_prog,self.n_latent))
+            key = torch.matmul(p, self.H_key[:, :, :, i].reshape((self.n_drug, self.n_prog * self.n_latent)))
+            key = key.reshape((p.size(0), self.n_prog, self.n_latent))
             score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
             score = score.view(-1, self.n_prog)
             attn += [F.softmax(score, dim=1)]
-        attn = torch.max(torch.stack(attn,dim=2),2)[0]
+        attn = torch.max(torch.stack(attn, dim=2), 2)[0]
         H_attn = attn * h
 
         prob = self.discriminator(z_basal)
@@ -244,10 +249,6 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         tensors,
         inference_outputs,
         generative_outputs,
-        lamda: float = 1.0,
-        kl_weight: float = 1.0,
-        rec_weight: float = 2.0,
-        ard_kl_weight: float = 0.2,
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
         p = tensors["TARGET_KEY"]
@@ -258,11 +259,11 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         mean = torch.zeros_like(qz_m)
         scale = torch.ones_like(qz_v)
 
-        H_attn = inference_outputs["H_attn"][p.sum(1)>0,:]
+        H_attn = inference_outputs["H_attn"][p.sum(1) > 0, :]
         laploc = torch.zeros_like(H_attn)
 
         # reconstruction loss
-        rec_loss = -generative_outputs["px"].log_prob(x).sum(-1) * rec_weight
+        rec_loss = -generative_outputs["px"].log_prob(x).sum(-1) * self.rec_weight
 
         # KL divergence
         kl_divergence_z = kl(
@@ -275,15 +276,15 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             Laplace(loc=laploc, scale=self.alpha_q.sigmoid())
             .log_prob(H_attn)
             .sum(-1)
-        ) * ard_kl_weight
+        ) * self.ard_kl_weight
 
         weighted_kl_local = (
-            kl_weight * kl_divergence_z
+                self.kl_weight * kl_divergence_z
         )
 
         adv_loss = torch.nn.BCELoss(reduction='sum')(
-            inference_outputs["prob"],p
-        ) * lamda
+            inference_outputs["prob"], p
+        ) * self.lamda
 
         loss = (
             torch.mean(

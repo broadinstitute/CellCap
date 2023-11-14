@@ -327,7 +327,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         layer: str,
         target_key: str,
         covar_key: str,
-        # weight_key: str,
         **kwargs,
     ):
         """

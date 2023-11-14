@@ -48,7 +48,7 @@ setuptools.setup(
         "Topic :: Scientific/Engineering :: Bio-Informatics",
     ],
     keywords="scRNA-seq bioinformatics",
-    url="https://github.com/broadinstitute/single-cell-compositional-perturbations",
+    url="https://github.com/broadinstitute/CellCap",
     author="Yang Xu, Stephen Fleming, Mehrtash Babadi",
     license="BSD (3-Clause)",
     packages=setuptools.find_packages(),
@@ -57,7 +57,7 @@ setuptools.setup(
         "dev": ["pytest", "black", "flake8", "jupyter", "matplotlib", "scanpy"],
     },
     # entry_points={
-    #     'console_scripts': ['cellbender=cellbender.base_cli:main'],
+    #     'console_scripts': ['cellcap=cellcap.base_cli:main'],
     # },
     include_package_data=True,
     zip_safe=False,
