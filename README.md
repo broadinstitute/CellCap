@@ -7,7 +7,7 @@ in single-cell data.
 What is CellCap?
 ----------------
 
-CellCap is a variational autoencoder for analyzing single-cell perturbation data. The primary goal of CellCap is
+The primary goal of CellCap is
 modeling the correspondence between cellular identity and perturbation response. To understand this correspondence,
 CellCap was built in several explainable components:
 
