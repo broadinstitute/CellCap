@@ -54,7 +54,7 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     install_requires=get_requirements(),
     extras_require={
-        "dev": ["pytest", "black", "flake8", "jupyter", "matplotlib", "scanpy"],
+        "dev": ["pytest", "black", "flake8", "jupyter", "matplotlib"],
     },
     # entry_points={
     #     'console_scripts': ['cellcap=cellcap.base_cli:main'],
