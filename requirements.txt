@@ -1,3 +1,5 @@
+numpy
+pandas
 torch==1.12.1
 scanpy>=1.9.1
 scipy>=1.10.1
