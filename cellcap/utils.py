@@ -8,6 +8,8 @@ import torch.nn.functional as F
 import anndata
 from scvi.data import synthetic_iid
 
+def get_version() -> str:
+    return read('VERSION.txt').splitlines()[0]
 
 def init_weights(m):
     classname = m.__class__.__name__

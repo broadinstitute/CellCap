@@ -1,10 +1,5 @@
 """Namespace for the package"""
 
-from .scvi_module import CellCap
-from .utils import generate_simulated_dataset
+from .utils import get_version
 
-
-__all__ = [
-    CellCap,
-    generate_simulated_dataset,
-]
+__version__ = get_version()
