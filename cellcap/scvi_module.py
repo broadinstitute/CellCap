@@ -319,6 +319,18 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         )
         return runner()
 
+    def setup_training(
+            self,
+            lamda: float = 1.0,
+            kl_weight: float = 1.0,
+            rec_weight: float = 2.0,
+            ard_kl_weight: float = 0.2,
+    ):
+        self.module.lamda = lamda
+        self.module.kl_weight = kl_weight
+        self.module.rec_weight = rec_weight
+        self.module.ard_kl_weight = ard_kl_weight
+
     @classmethod
     @setup_anndata_dsp.dedent
     def setup_anndata(
