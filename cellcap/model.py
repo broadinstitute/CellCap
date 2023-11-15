@@ -32,8 +32,14 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         n_prog: int = 5,
         n_covar: int = 5,
         n_layers_encoder: int = 1,
-        n_head: int = 1,
+        n_head: int = 2,
         dropout_rate: float = 0.25,
+
+        lamda: float = 1.0,
+        kl_weight: float = 1.0,
+        rec_weight: float = 2.0,
+        ard_kl_weight: float = 0.2,
+
         dispersion: str = "gene",
         log_variational: bool = True,
         gene_likelihood: Literal["nb", "poisson"] = "nb",

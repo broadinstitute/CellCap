@@ -1,9 +1,8 @@
 numpy
+scipy
 pandas
+scanpy
 torch==1.12.1
-scipy>=1.10.1
-scanpy>=1.9.1
 scvi-tools==0.19.0
 torchvision==0.13.1
 torchmetrics==0.11.4
-#pytorch_lightning==1.7.7
