@@ -347,8 +347,6 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         Parameters
         ----------
         %(param_layer)s
-        %(param_target_key)s
-        %(param_donor_key)s
         """
         setup_method_args = cls._get_setup_method_args(**locals())
         anndata_fields = [
