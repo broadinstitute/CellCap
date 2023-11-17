@@ -34,12 +34,10 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         n_layers_encoder: int = 1,
         n_head: int = 2,
         dropout_rate: float = 0.25,
-
         lamda: float = 1.0,
         kl_weight: float = 1.0,
         rec_weight: float = 2.0,
         ard_kl_weight: float = 0.2,
-
         dispersion: str = "gene",
         log_variational: bool = True,
         gene_likelihood: Literal["nb", "poisson"] = "nb",
@@ -92,18 +90,21 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
 
         w_qk = torch.empty(n_prog, n_latent)
         self.w_qk = torch.nn.Parameter(
-            torch.nn.init.xavier_normal_(w_qk,
-                                         gain=torch.nn.init.calculate_gain('relu'))
+            torch.nn.init.xavier_normal_(
+                w_qk, gain=torch.nn.init.calculate_gain("relu")
+            )
         )
         w_covar_dk = torch.empty(n_covar, n_latent)
         self.w_covar_dk = torch.nn.Parameter(
-            torch.nn.init.xavier_normal_(w_covar_dk,
-                                         gain=torch.nn.init.calculate_gain('relu'))
+            torch.nn.init.xavier_normal_(
+                w_covar_dk, gain=torch.nn.init.calculate_gain("relu")
+            )
         )
-        H_key = torch.empty(n_drug,n_prog,n_latent,n_head)
+        H_key = torch.empty(n_drug, n_prog, n_latent, n_head)
         self.H_key = torch.nn.Parameter(
-            torch.nn.init.xavier_normal_(H_key,
-                                         gain=torch.nn.init.calculate_gain('relu'))
+            torch.nn.init.xavier_normal_(
+                H_key, gain=torch.nn.init.calculate_gain("relu")
+            )
         )
 
         self.z_encoder = Encoder(
@@ -187,7 +188,12 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         # Attention
         attn = []
         for i in range(self.n_head):
-            key = torch.matmul(p, self.H_key[:, :, :, i].reshape((self.n_drug, self.n_prog * self.n_latent)))
+            key = torch.matmul(
+                p,
+                self.H_key[:, :, :, i].reshape(
+                    (self.n_drug, self.n_prog * self.n_latent)
+                ),
+            )
             key = key.reshape((p.size(0), self.n_prog, self.n_latent))
             score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
             score = score.view(-1, self.n_prog)
@@ -214,7 +220,9 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         return outputs
 
     @auto_move_data
-    def generative(self, z_basal, delta_z, delta_z_covar, library, y=None, transform_batch=None):
+    def generative(
+        self, z_basal, delta_z, delta_z_covar, library, y=None, transform_batch=None
+    ):
         """Runs the generative model."""
         # Likelihood distribution
 
@@ -232,9 +240,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         )
         if self.dispersion == "gene-label":
             # px_r gets transposed - last dimension is nb genes
-            px_r = F.linear(
-                one_hot(y, self.n_labels), self.px_r
-            )
+            px_r = F.linear(one_hot(y, self.n_labels), self.px_r)
         elif self.dispersion == "gene":
             px_r = self.px_r
 
@@ -272,30 +278,28 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         rec_loss = -generative_outputs["px"].log_prob(x).sum(-1) * self.rec_weight
 
         # KL divergence
-        kl_divergence_z = kl(
-            Normal(qz_m, torch.sqrt(qz_v)),
-            Normal(mean, scale)).sum(
+        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
             dim=1
         )
 
-        kl_divergence_ard = -1 * (
-            Laplace(loc=laploc, scale=self.alpha_q.sigmoid())
-            .log_prob(H_attn)
-            .sum(-1)
-        ) * self.ard_kl_weight
-
-        weighted_kl_local = (
-                self.kl_weight * kl_divergence_z
+        kl_divergence_ard = (
+            -1
+            * (
+                Laplace(loc=laploc, scale=self.alpha_q.sigmoid())
+                .log_prob(H_attn)
+                .sum(-1)
+            )
+            * self.ard_kl_weight
         )
 
-        adv_loss = torch.nn.BCELoss(reduction='sum')(
-            inference_outputs["prob"], p
-        ) * self.lamda
+        weighted_kl_local = self.kl_weight * kl_divergence_z
+
+        adv_loss = (
+            torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], p) * self.lamda
+        )
 
         loss = (
-            torch.mean(
-                rec_loss + weighted_kl_local
-            )
+            torch.mean(rec_loss + weighted_kl_local)
             + torch.mean(kl_divergence_ard)
             + adv_loss
         )

@@ -23,7 +23,6 @@ from scvi.data import AnnDataManager
 from scvi.utils import setup_anndata_dsp
 from scvi.train._trainingplans import TrainingPlan
 from scvi.data.fields import (
-    CategoricalObsField,
     LayerField,
     ObsmField,
 )
@@ -33,6 +32,7 @@ from typing import Optional, Union, Literal
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
+
 
 class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def __init__(
@@ -192,7 +192,11 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             a = outputs["attn"]
             attn += [a.cpu()]
 
-        return np.array(torch.cat(embedding)), np.array(torch.cat(h)), np.array(torch.cat(attn))
+        return (
+            np.array(torch.cat(embedding)),
+            np.array(torch.cat(h)),
+            np.array(torch.cat(attn)),
+        )
 
     @torch.no_grad()
     def get_covar_embedding(
@@ -303,7 +307,9 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             use_gpu=use_gpu,
         )
 
-        training_plan = TrainingPlan(self.module, reduce_lr_on_plateau=True, **plan_kwargs) #
+        training_plan = TrainingPlan(
+            self.module, reduce_lr_on_plateau=True, **plan_kwargs
+        )  #
 
         runner = TrainRunner(
             self,
@@ -320,11 +326,11 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         return runner()
 
     def setup_training(
-            self,
-            lamda: float = 1.0,
-            kl_weight: float = 1.0,
-            rec_weight: float = 2.0,
-            ard_kl_weight: float = 0.2,
+        self,
+        lamda: float = 1.0,
+        kl_weight: float = 1.0,
+        rec_weight: float = 2.0,
+        ard_kl_weight: float = 0.2,
     ):
         self.module.lamda = lamda
         self.module.kl_weight = kl_weight

@@ -27,11 +27,11 @@ def small_real_dataset() -> Tuple[anndata.AnnData, Dict[str, Any], Dict[str, Any
     setup_adata_kwargs = {
         "layer": "counts",
         "target_key": "X_target",
-        "donor_key": "X_donor",
+        "covar_key": "X_donor",
     }
     adata_kwargs = {
         "n_drug": 14,
-        "n_donor": 33,
+        "n_covar": 33,
     }
 
     return adata, setup_adata_kwargs, adata_kwargs
