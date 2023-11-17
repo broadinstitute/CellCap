@@ -23,7 +23,6 @@ from scvi.data import AnnDataManager
 from scvi.utils import setup_anndata_dsp
 from scvi.train._trainingplans import TrainingPlan
 from scvi.data.fields import (
-    CategoricalObsField,
     LayerField,
     ObsmField,
 )

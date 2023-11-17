@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 import torch
 import torch.nn.functional as F
