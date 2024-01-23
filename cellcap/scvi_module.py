@@ -7,6 +7,7 @@ from anndata import AnnData
 
 import torch
 import torch.nn.functional as F
+from torch.utils.data import BatchSampler, WeightedRandomSampler
 
 from scvi import REGISTRY_KEYS
 from scvi.train import TrainRunner
@@ -305,6 +306,10 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             validation_size=validation_size,
             batch_size=batch_size,
             use_gpu=use_gpu,
+            sampler=WeightedRandomSampler(weights, n_samples),
+            # sampler=BatchSampler(sampler=WeightedRandomSampler(weights, n_samples),
+            #                     batch_size=batch_size,
+            #                     drop_last=True)
         )
 
         training_plan = TrainingPlan(
