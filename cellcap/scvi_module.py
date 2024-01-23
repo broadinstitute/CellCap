@@ -300,6 +300,8 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
                 SaveBestState(monitor="reconstruction_loss_validation")
             )
 
+        weights = torch.tensor(self.adata.obsm['X_weight'].squeeze())
+        n_samples = self.adata.X.shape[0]
         data_splitter = DataSplitter(
             self.adata_manager,
             train_size=train_size,
