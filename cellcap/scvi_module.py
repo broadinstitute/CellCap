@@ -313,9 +313,9 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def train(
         self,
         max_epochs: int = 500,
-        lr: float = 1e-3, # 6e-4, #
+        lr: float = 1e-3, # 6e-4, # 
         use_gpu: Optional[Union[str, int, bool]] = None,
-        train_size: float = 0.95, # 0.9,
+        train_size: float = 0.9, # 0.95, # 
         validation_size: Optional[float] = None,
         batch_size: int = 128,
         weight_decay: float = 1e-5,
@@ -326,6 +326,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         n_steps_kl_warmup: Optional[int] = None,
         n_epochs_kl_warmup: Optional[int] = 50,
         plan_kwargs: Optional[dict] = None,
+        weighted_sampler: Optional[bool] = False,
         **kwargs,
     ):
         update_dict = dict(
@@ -336,7 +337,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             n_steps_kl_warmup=n_steps_kl_warmup,
             optimizer="AdamW",
         )
-
+        
         if plan_kwargs is not None:
             plan_kwargs.update(update_dict)
         else:
@@ -348,16 +349,17 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             kwargs["callbacks"].append(
                 SaveBestState(monitor="reconstruction_loss_validation")
             )
-
+            
         data_splitter = DataSplitter(
             self.adata_manager,
             train_size=train_size,
             validation_size=validation_size,
             batch_size=batch_size,
+            weighted_sampler=weighted_sampler,
         )
-
+         
         training_plan = TrainingPlan(self.module, reduce_lr_on_plateau=True, **plan_kwargs)
-
+        
         runner = TrainRunner(
             self,
             training_plan=training_plan,

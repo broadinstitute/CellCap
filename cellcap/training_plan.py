@@ -86,7 +86,7 @@ class AnnDataLoader(DataLoader):
         # drop_dataset_tail: bool = False,
         data_and_attributes: Optional[Union[list[str], dict[str, np.dtype]]] = None,
         iter_ndarray: bool = False,
-        distributed_sampler: bool = True,
+        weighted_sampler: bool = True,
         # load_sparse_tensor: bool = False,
         **kwargs,
     ):
@@ -97,7 +97,10 @@ class AnnDataLoader(DataLoader):
                 indices = np.where(indices)[0].ravel()
             indices = np.asarray(indices)
         self.indices = indices
-        self.sample_weights = torch.tensor(adata_manager.adata.obsm['X_weight'].squeeze())[indices]
+
+        if weighted_sampler:
+            self.sample_weights = torch.tensor(adata_manager.adata.obsm['X_weight'].squeeze())[indices]
+
         self.dataset = adata_manager.create_torch_dataset(
             indices=indices,
             data_and_attributes=data_and_attributes,
@@ -108,12 +111,12 @@ class AnnDataLoader(DataLoader):
 
         self.kwargs = copy.deepcopy(kwargs)
 
-        if sampler is not None and distributed_sampler:
-            raise ValueError("Cannot specify both `sampler` and `distributed_sampler`.")
+        if sampler is not None and weighted_sampler:
+            raise ValueError("Cannot specify both `sampler` and `weighted_sampler`.")
 
         # custom sampler for efficient minibatching on sparse matrices
         if sampler is None:
-            if distributed_sampler:
+            if weighted_sampler:
                 n_samples = len(indices)
                 sampler = BatchSampler(
                     sampler=WeightedRandomSampler(self.sample_weights, n_samples),
