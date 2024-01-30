@@ -7,11 +7,10 @@ from anndata import AnnData
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import BatchSampler, WeightedRandomSampler
+
 
 from scvi import REGISTRY_KEYS
 from scvi.train import TrainRunner
-from scvi.dataloaders import DataSplitter
 from scvi.train._callbacks import SaveBestState
 from scvi.model.base import (
     UnsupervisedTrainingMixin,
@@ -28,20 +27,21 @@ from scvi.data.fields import (
     ObsmField,
 )
 
+from .training_plan import DataSplitter
+
 from .model import CellCapModel
 from typing import Optional, Union, Literal
 
 torch.backends.cudnn.benchmark = True
 logger = logging.getLogger(__name__)
 
-
 class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def __init__(
         self,
         adata: AnnData,
         n_hidden: int = 128,
-        n_latent: int = 10,
-        n_layers: int = 1,
+        n_latent: int = 20,
+        n_layers: int = 4,
         dropout_rate: float = 0.25,
         dispersion: Literal["gene", "gene-label", "gene-cell"] = "gene",
         latent_distribution: Literal["normal", "ln"] = "normal",
@@ -124,6 +124,12 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
         return w
 
+    def get_H_key(self) -> pd.DataFrame:
+        w = self.module.H_key
+        w = torch.Tensor.cpu(w).detach().numpy()
+
+        return w
+
     @torch.no_grad()
     def get_h_attn(
         self,
@@ -193,11 +199,7 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             a = outputs["attn"]
             attn += [a.cpu()]
 
-        return (
-            np.array(torch.cat(embedding)),
-            np.array(torch.cat(h)),
-            np.array(torch.cat(attn)),
-        )
+        return np.array(torch.cat(embedding)), np.array(torch.cat(h)), np.array(torch.cat(attn))
 
     @torch.no_grad()
     def get_covar_embedding(
@@ -261,12 +263,59 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
             preditions += [out.cpu()]
         return np.array(torch.cat(preditions))
 
+    @torch.no_grad()
+    def predict_basal(
+        self,
+        adata: Optional[AnnData] = None,
+        batch_size: Optional[int] = None,
+    ) -> np.ndarray:
+        if self.is_trained_ is False:
+            raise RuntimeError("Please train the model first.")
+
+        adata = self._validate_anndata(adata)
+        post = self._make_data_loader(adata=adata, batch_size=batch_size)
+        preditions = []
+        for tensors in post:
+            inference_inputs = self.module._get_inference_input(tensors)
+            outputs = self.module.inference(**inference_inputs)
+            outputs['delta_z'] = outputs['delta_z'] - outputs['delta_z']
+            outputs['delta_z_covar'] = outputs['delta_z_covar'] - outputs['delta_z_covar']
+            generative_inputs = self.module._get_generative_input(tensors, outputs)
+            outputs = self.module.generative(**generative_inputs)
+            out = outputs["px"].sample()
+            preditions += [out.cpu()]
+        return np.array(torch.cat(preditions))
+
+    @torch.no_grad()
+    def predict_pert(
+        self,
+        adata: Optional[AnnData] = None,
+        batch_size: Optional[int] = None,
+        pert_index: Optional[int] = 1,
+    ) -> np.ndarray:
+        if self.is_trained_ is False:
+            raise RuntimeError("Please train the model first.")
+
+        adata = self._validate_anndata(adata)
+        post = self._make_data_loader(adata=adata, batch_size=batch_size)
+        preditions = []
+        for tensors in post:
+            inference_inputs = self.module._get_inference_input(tensors)
+            outputs = self.module.inference(**inference_inputs)
+            outputs['z_basal'] = outputs['z_basal'] - outputs['z_basal']
+            outputs['delta_z_covar'] = outputs['delta_z_covar'] - outputs['delta_z_covar']
+            generative_inputs = self.module._get_generative_input(tensors, outputs)
+            outputs = self.module.generative(**generative_inputs)
+            out = outputs["px"].sample()
+            preditions += [out.cpu()]
+        return np.array(torch.cat(preditions))
+
     def train(
         self,
         max_epochs: int = 500,
-        lr: float = 1e-3,
+        lr: float = 1e-3, # 6e-4, #
         use_gpu: Optional[Union[str, int, bool]] = None,
-        train_size: float = 0.9,
+        train_size: float = 0.95, # 0.9,
         validation_size: Optional[float] = None,
         batch_size: int = 128,
         weight_decay: float = 1e-5,
@@ -300,23 +349,14 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
                 SaveBestState(monitor="reconstruction_loss_validation")
             )
 
-        weights = torch.tensor(self.adata.obsm['X_weight'].squeeze())
-        n_samples = self.adata.X.shape[0]
         data_splitter = DataSplitter(
             self.adata_manager,
             train_size=train_size,
             validation_size=validation_size,
             batch_size=batch_size,
-            use_gpu=use_gpu,
-            sampler=WeightedRandomSampler(weights, n_samples),
-            # sampler=BatchSampler(sampler=WeightedRandomSampler(weights, n_samples),
-            #                     batch_size=batch_size,
-            #                     drop_last=True)
         )
 
-        training_plan = TrainingPlan(
-            self.module, reduce_lr_on_plateau=True, **plan_kwargs
-        )  #
+        training_plan = TrainingPlan(self.module, reduce_lr_on_plateau=True, **plan_kwargs)
 
         runner = TrainRunner(
             self,
@@ -364,11 +404,11 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
         setup_method_args = cls._get_setup_method_args(**locals())
         anndata_fields = [
             LayerField(REGISTRY_KEYS.X_KEY, layer, is_count_data=True),
-            ObsmField(registry_key="TARGET_KEY", obsm_key=target_key),
-            ObsmField(registry_key="COVAR_KEY", obsm_key=covar_key),
+            ObsmField(registry_key="TARGET_KEY", attr_key=target_key),
+            ObsmField(registry_key="COVAR_KEY", attr_key=covar_key),
         ]
         adata_manager = AnnDataManager(
-            fields=anndata_fields, setup_method_args=setup_method_args
+            fields=anndata_fields, setup_method_args=setup_method_args,
         )
         adata_manager.register_fields(adata, **kwargs)
         cls.register_manager(adata_manager)
