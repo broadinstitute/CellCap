@@ -272,36 +272,39 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         scale = torch.ones_like(qz_v)
 
         H_attn = inference_outputs["H_attn"][p.sum(1) > 0, :]
-        laploc = torch.zeros_like(H_attn)
+        laploc = torch.zeros_like(self.alpha_q)
 
         # reconstruction loss
         rec_loss = -generative_outputs["px"].log_prob(x).sum(-1) * self.rec_weight
-
+        
         # KL divergence
-        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
+        kl_divergence_z = kl(
+            Normal(qz_m, torch.sqrt(qz_v)), 
+            Normal(mean, scale)).sum(
             dim=1
         )
-
-        kl_divergence_ard = (
-            -1
-            * (
-                Laplace(loc=laploc, scale=self.alpha_q.sigmoid())
-                .log_prob(H_attn)
-                .sum(-1)
-            )
-            * self.ard_kl_weight
+        
+        kl_divergence_ard = -1 * (
+            Laplace(loc=laploc, scale=self.alpha_q.sigmoid())
+            .log_prob(H_attn)
+            .sum(-1)
+        ) * self.ard_kl_weight
+        
+        weighted_kl_local = (
+            self.kl_weight * kl_divergence_z
         )
-
-        weighted_kl_local = self.kl_weight * kl_divergence_z
-
-        adv_loss = (
-            torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], p) * self.lamda
-        )
-
+        
+        adv_loss = torch.nn.BCELoss(reduction='mean')(
+            inference_outputs["prob"],p
+        ) * self.lamda
+        scale_factor = ((torch.mean(rec_loss)/adv_loss)*0.05).detach()
+        
         loss = (
-            torch.mean(rec_loss + weighted_kl_local)
+            torch.mean(
+                rec_loss + weighted_kl_local
+            )
             + torch.mean(kl_divergence_ard)
-            + adv_loss
+            + adv_loss * scale_factor
         )
 
         kl_local = dict(

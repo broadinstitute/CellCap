@@ -313,9 +313,9 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
     def train(
         self,
         max_epochs: int = 500,
-        lr: float = 1e-3, # 6e-4, # 
+        lr: float = 1e-3,
         use_gpu: Optional[Union[str, int, bool]] = None,
-        train_size: float = 0.9, # 0.95, # 
+        train_size: float = 0.9,
         validation_size: Optional[float] = None,
         batch_size: int = 128,
         weight_decay: float = 1e-5,
