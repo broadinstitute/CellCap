@@ -244,71 +244,76 @@ class CellCap(RNASeqMixin, VAEMixin, UnsupervisedTrainingMixin, BaseModelClass):
 
     @torch.no_grad()
     def predict(
-        self,
-        adata: Optional[AnnData] = None,
-        batch_size: Optional[int] = None,
+            self,
+            adata: Optional[AnnData] = None,
+            batch_size: Optional[int] = None,
     ) -> np.ndarray:
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(adata=adata, batch_size=batch_size)
-        preditions = []
+        predictions = []
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
             generative_inputs = self.module._get_generative_input(tensors, outputs)
             outputs = self.module.generative(**generative_inputs)
-            out = outputs["px"].sample()
-            preditions += [out.cpu()]
-        return np.array(torch.cat(preditions))
+            out = outputs["px"].mean  # .sample()
+            predictions += [out.cpu()]
+        return np.array(torch.cat(predictions))
 
     @torch.no_grad()
     def predict_basal(
-        self,
-        adata: Optional[AnnData] = None,
-        batch_size: Optional[int] = None,
+            self,
+            adata: Optional[AnnData] = None,
+            batch_size: Optional[int] = None,
     ) -> np.ndarray:
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(adata=adata, batch_size=batch_size)
-        preditions = []
+        predictions = []
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
-            outputs['delta_z'] = outputs['delta_z'] - outputs['delta_z']
-            outputs['delta_z_covar'] = outputs['delta_z_covar'] - outputs['delta_z_covar']
+            outputs['delta_z'] = torch.zeros_like(outputs['delta_z'])
+            outputs['delta_z_covar'] = torch.zeros_like(outputs['delta_z_covar'])
             generative_inputs = self.module._get_generative_input(tensors, outputs)
             outputs = self.module.generative(**generative_inputs)
-            out = outputs["px"].sample()
-            preditions += [out.cpu()]
-        return np.array(torch.cat(preditions))
+            out = outputs["px"].mean  # .sample()
+            predictions += [out.cpu()]
+        return np.array(torch.cat(predictions))
 
     @torch.no_grad()
     def predict_pert(
-        self,
-        adata: Optional[AnnData] = None,
-        batch_size: Optional[int] = None,
-        pert_index: Optional[int] = 1,
+            self,
+            adata: Optional[AnnData] = None,
+            batch_size: Optional[int] = None,
     ) -> np.ndarray:
         if self.is_trained_ is False:
             raise RuntimeError("Please train the model first.")
 
         adata = self._validate_anndata(adata)
         post = self._make_data_loader(adata=adata, batch_size=batch_size)
-        preditions = []
+        predictions = []
+        all_predictions = []
         for tensors in post:
             inference_inputs = self.module._get_inference_input(tensors)
             outputs = self.module.inference(**inference_inputs)
-            outputs['z_basal'] = outputs['z_basal'] - outputs['z_basal']
-            outputs['delta_z_covar'] = outputs['delta_z_covar'] - outputs['delta_z_covar']
             generative_inputs = self.module._get_generative_input(tensors, outputs)
-            outputs = self.module.generative(**generative_inputs)
-            out = outputs["px"].sample()
-            preditions += [out.cpu()]
-        return np.array(torch.cat(preditions))
+            gen_outputs = self.module.generative(**generative_inputs)
+            out = gen_outputs["px"].mean  # .sample() #
+            all_predictions += [out.cpu()]
+
+            outputs['delta_z'] = torch.zeros_like(outputs['delta_z'])
+            outputs['delta_z_covar'] = torch.zeros_like(outputs['delta_z_covar'])
+            generative_inputs = self.module._get_generative_input(tensors, outputs)
+            gen_outputs = self.module.generative(**generative_inputs)
+            out = gen_outputs["px"].mean  # .sample() #
+            predictions += [out.cpu()]
+        return np.array(torch.cat(all_predictions)) - np.array(torch.cat(predictions))
 
     def train(
         self,
