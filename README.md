@@ -3,7 +3,7 @@ CellCap
 
 CellCap is a variational autoencoder for modeling interpretable correspondence between cell state and perturbation response in single-cell data.
 
-Key concept of CellCap
+Key concepts of CellCap
 ----------------------
 To understand such correspondence between cell state and perturbation response , CellCap was built with several explainable components:
 
@@ -47,7 +47,7 @@ The CellCap repository is organized as follows:
 ```
 <repo_root>/
 ├─ cellcap/               # CellCap python package
-├─ doc/                   # Package documentation, including notebooks for analyzing single-cell perturbation data with CellCap
+├─ docs/                  # Package documentation, including notebooks for analyzing single-cell perturbation data with CellCap
 ```
 
 Preprint and Citation
