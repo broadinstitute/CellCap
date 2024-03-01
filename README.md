@@ -9,15 +9,15 @@ To understand such correspondence between cell state and perturbation response ,
 
 ![alt text](https://github.com/broadinstitute/CellCap/blob/main/docs/source/_static/design/Figure1.jpg?raw=false)
 
-1. Basal state z<sup>(basal)</sup><sub>nk</sub>: basal state `z<sup>(basal)</sup>` can be understood as cell state in latent space where only intrinsic
+1. Basal state z<sub>nk</sub><sup>(basal)</sup>: basal state z<sub>nk</sub><sup>(basal)</sup> can be understood as cell state in latent space where only intrinsic
 cellular identity is preserved.
 
-2. Responsse program `w<sub>qk</sub>`: each response program has its latent representation `w<sub>qk</sub>` that has the same dimension as
-basal state `z<sup>(basal)</sup><sub>nk</sub>`, and it explains the transcriptional activation or deactivation after perturbation.
+2. Responsse program w<sub>qk</sub>: each response program p has its latent representation w<sub>k</sub> that has the same dimension as
+basal state z<sup>(basal)</sup>, and it explains the transcriptional activation or deactivation after perturbation.
 
-3. Perturbation key #922: matching a perturbation key `K` with a basal state `z<sup>(basal)</sup><sub>k</sub>` through attention mechanism can establish the correspondence between cell state and perturbation response. The output attention score #946 further represents the relevance of each basal state `z<sup>(basal)</sup><sub>k</sub>` to this perturbation program `w<sub>k</sub>`.
+3. Perturbation key #922: matching a perturbation key `K` with a basal state z<sup>(basal)</sup> through attention mechanism can establish the correspondence between cell state and perturbation response. The output attention score #946 further represents the relevance of each basal state z<sup>(basal)</sup> to this perturbation program w<sub>k</sub>.
 
-4. Program relevance `H`w<sub>pq</sub>`: similar to attention score `A` telling the relevance of each basal state `z<sup>(basal)</sup><sub>nk</sub>` to a response program `w<sub>k</sub>`, `H`w<sub>pq</sub>` presents the relevance of a perturbation condition to a response program.
+4. Program relevance H<sub>pq</sub>: similar to attention score `A` telling the relevance of each basal state z<sup>(basal)</sup> to a response program w<sub>k</sub>, H<sub>q</sub> presents the relevance of a perturbation condition p to a response program q.
 
 Downstream analyses with CellCap
 ---------------------------------------------------------
