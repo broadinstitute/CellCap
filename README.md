@@ -15,7 +15,7 @@ cellular identity is preserved.
 2. Responsse program w<sub>qk</sub>: each response program p has its latent representation w<sub>k</sub> that has the same dimension as
 basal state z<sup>(basal)</sup>, and it explains the transcriptional activation or deactivation after perturbation.
 
-3. Perturbation key $\Kappe$<sub>pqk</sub>: matching a perturbation key `K` with a basal state z<sup>(basal)</sup> through attention mechanism can establish the correspondence between cell state and perturbation response. The output attention score #946 further represents the relevance of each basal state z<sup>(basal)</sup> to this perturbation program w<sub>k</sub>.
+3. Perturbation key $\Kappa$<sub>pqk</sub>: matching a perturbation key `K` with a basal state z<sup>(basal)</sup> through attention mechanism can establish the correspondence between cell state and perturbation response. The output attention score $\beta$<sub>nq</sub> further represents the relevance of each basal state z<sup>(basal)</sup> to this perturbation program w<sub>k</sub>.
 
 4. Program relevance H<sub>pq</sub>: similar to attention score `A` telling the relevance of each basal state z<sup>(basal)</sup> to a response program w<sub>k</sub>, H<sub>q</sub> presents the relevance of a perturbation condition p to a response program q.
 
