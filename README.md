@@ -9,7 +9,7 @@ To understand such correspondence between cell state and perturbation response ,
 
 ![alt text](https://github.com/broadinstitute/CellCap/blob/main/docs/source/_static/design/Figure1.jpg?raw=false)
 
-1. Basal state `z<sup>(basal)</sup><sub>nk</sub>`: basal state `z<sup>(basal)</sup>` can be understood as cell state in latent space where only intrinsic
+1. Basal state z<sup>(basal)</sup><sub>nk</sub>: basal state `z<sup>(basal)</sup>` can be understood as cell state in latent space where only intrinsic
 cellular identity is preserved.
 
 2. Responsse program `w<sub>qk</sub>`: each response program has its latent representation `w<sub>qk</sub>` that has the same dimension as
