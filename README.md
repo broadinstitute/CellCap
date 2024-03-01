@@ -1,7 +1,7 @@
 CellCap
 =======
 
-CellCap is a variational autoencoder for modeling correspondence between cell state and perturbation response in single-cell data.
+CellCap is a variational autoencoder for modeling interpretable correspondence between cell state and perturbation response in single-cell data.
 
 Key concept of CellCap
 ----------------------
