@@ -1,10 +1,10 @@
 CellCap
-==========
+=======
 
 CellCap is a variational autoencoder for modeling correspondence between cell state and perturbation response in single-cell data.
 
 Key concept of CellCap
--------------------------------
+----------------------
 To understand such correspondence between cell state and perturbation response , CellCap was built with several explainable components:
 
 ![alt text](https://github.com/broadinstitute/CellCap/blob/main/docs/source/_static/design/Figure1.jpg?raw=false)
@@ -20,7 +20,7 @@ basal state z<sup>(basal)</sup>, and it explains the transcriptional activation 
 4. Program relevance H<sub>pq</sub>: similar to attention score $\beta$<sub>nq</sub> telling the relevance of each basal state z<sup>(basal)</sup> to a response program q, H<sub>q</sub> presents the relevance of a perturbation condition p to a response program q.
 
 Downstream analyses with CellCap
----------------------------------------------------------
+--------------------------------
 
 Understanding the correspondence between cellular identity and perturbation response would facilitate multiple
 biological investigations. We list a few suggested questions here, and users can use explainable components in CellCap
@@ -41,19 +41,13 @@ perturbation p, CellCap first infers its basal state z<sup>(basal)</sup>. Then, 
 given its basal stata z<sup>(basal)</sup>.
 
 Navigating this Repository
-------------------
+--------------------------
 
-The SynapseCLR repository is organized as follows:
+The CellCap repository is organized as follows:
 ```
 <repo_root>/
-├─ pytorch_synapse/       # SynapseCLR Python packages
-├─ configs/               # Sample configuration files for pretraining SynapseCLR models
-├─ scripts/               # Helper scripts
-├─ notebooks/             # Notebooks for data preprocessing, interactive analysis, and reproducing paper figures
-├─ data/                  # (not included in GitHub; see below) Raw and processed 3D EM image chunks
-├─ ext/                   # (not included in GitHub; see below) External resources (e.g. other pretrained models)
-├─ output/                # (not included in GitHub; see below) SynapseCLR outputs (pretrained models, extracted features, interactive analysis results)
-└─ tables/                # (not included in GitHub; see below) Primary and derived resource tables
+├─ cellcap/               # CellCap Python package
+├─ doc/                   # Documentation of CellCap package, including notebook for using CellCap to analysis single-cell perturbation data
 ```
 
 Preprint and Citation
