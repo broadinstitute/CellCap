@@ -1,15 +1,11 @@
 CellCap
 ==========
 
-CellCap is a variational autoencoder for modeling correspondence between cellular identity and perturbation response
-in single-cell data.
+CellCap is a variational autoencoder for modeling correspondence between cellular identity and perturbation response in single-cell data.
 
-What is CellCap?
-----------------
-
-The primary goal of CellCap is
-modeling the correspondence between cellular identity and perturbation response. To understand this correspondence,
-CellCap was built in several explainable components:
+Key concept of CellCap
+-------------------------------
+The primary goal of CellCap is modeling the correspondence between cellular identity and perturbation response. To understand this correspondence, CellCap was built in several explainable components:
 
 ![alt text](https://github.com/broadinstitute/CellCap/blob/main/docs/source/_static/design/Figure1.jpg?raw=false)
 
@@ -26,27 +22,7 @@ further represents the relevance of each basal state `z_basal` to this perturbat
 4. Program relevance `H`: similar to attention score `A` telling the relevance of each basal state `z_basal` to a
 perturbation program `w`, `H` presents the relevance of a perturbation condition to a perturbation program.
 
-Is CellCap right for your data?
--------------------------------
-
-Before you proceed to run CellCap, it's always important to ask if CellCap is right for your perturbation data. For
-CellCap to accurately model the correspondence between cellular identity and perturbation response, there are a few
-underlying assumptions to be considered:
-
-1. The variation within unperturbed cells (control group) is primarily driven by cellular identity, and all possible
-cell states should have their representatives in the control group.
-
-2. After perturbation, cells still remain their cellular identities that are explained by cell states. Loss of
-cellular identities due to perturbation would obscure the correspondence between cellular identity and perturbation
-response.
-
-3. Perturbation will induce transcriptional activation or deactivation, but this change will not establish new cell
-states that are not present in control group.
-
-4. If perturbation induces cells to establish new cell states, these perturbed cells should still preserve their old
-cellular identities.
-
-What biological investigations do CellCap aim to address?
+Downstream analyses with CellCap
 ---------------------------------------------------------
 
 Understanding the correspondence between cellular identity and perturbation response would facilitate multiple
@@ -71,19 +47,23 @@ tries to address: the correspondence between cellular identity and perturbation 
 perturbation, CellCap first infers its basal state `z_basal`. Then, multiplying `A` and `H` for this perturbed cell
 can reveal how large perturbation program is in a cell state.
 
-Quick installation
+Navigating this Repository
 ------------------
 
-CellCap can be installed via
-    
-    pip install cellcap
-    
+The SynapseCLR repository is organized as follows:
+```
+<repo_root>/
+├─ pytorch_synapse/       # SynapseCLR Python packages
+├─ configs/               # Sample configuration files for pretraining SynapseCLR models
+├─ scripts/               # Helper scripts
+├─ notebooks/             # Notebooks for data preprocessing, interactive analysis, and reproducing paper figures
+├─ data/                  # (not included in GitHub; see below) Raw and processed 3D EM image chunks
+├─ ext/                   # (not included in GitHub; see below) External resources (e.g. other pretrained models)
+├─ output/                # (not included in GitHub; see below) SynapseCLR outputs (pretrained models, extracted features, interactive analysis results)
+└─ tables/                # (not included in GitHub; see below) Primary and derived resource tables
+```
 
-Citing CellCap
+Preprint and Citation
 --------------
 
-If you use CellCap in your research, please consider citing our paper:
-
-Yang Xu, Stephen Fleming, Matthew Tegtmeyer, Steven A. McCarroll, and Mehrtash Babadi.
-Modeling interpretable correspondence between cellular identity and perturbation response with CellCap.
-*bioRxiv*, 2023.
+The preprint will be shortly posted to *bioRxiv*, and this section will be updated imminently.
