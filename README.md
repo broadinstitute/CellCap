@@ -1,26 +1,25 @@
 CellCap
 ==========
 
-CellCap is a variational autoencoder for modeling correspondence between cellular identity and perturbation response in single-cell data.
+CellCap is a variational autoencoder for modeling correspondence between cell state and perturbation response in single-cell data.
 
 Key concept of CellCap
 -------------------------------
-The primary goal of CellCap is modeling the correspondence between cellular identity and perturbation response. To understand this correspondence, CellCap was built in several explainable components:
+To understand such correspondence between cell state and perturbation response , CellCap was built with several explainable components:
 
 ![alt text](https://github.com/broadinstitute/CellCap/blob/main/docs/source/_static/design/Figure1.jpg?raw=false)
 
 1. Basal state `z_basal`: basal state `z_basal` can be understood as cell state in latent space where only intrinsic
 cellular identity is preserved.
 
-2. Perturbation program `w`: each perturbation program has its latent representation `w` that has the same dimension as
-basal state `z_basal` and explains the transcriptional activation or deactivation after perturbation.
+2. Responsse program `w`: each response program has its latent representation `w` that has the same dimension as
+basal state `z_basal`, and it explains the transcriptional activation or deactivation after perturbation.
 
 3. Perturbation key `K`: matching a perturbation key `K` with a basal state `z_basal` through attention mechanism can
-establish the correspondence between cellular identity and perturbation response. The output attention score `A`
+establish the correspondence between cell state and perturbation response. The output attention score `A`
 further represents the relevance of each basal state `z_basal` to this perturbation program `w`.
 
-4. Program relevance `H`: similar to attention score `A` telling the relevance of each basal state `z_basal` to a
-perturbation program `w`, `H` presents the relevance of a perturbation condition to a perturbation program.
+4. Program relevance `H`: similar to attention score `A` telling the relevance of each basal state `z_basal` to a response program `w`, `H` presents the relevance of a perturbation condition to a response program.
 
 Downstream analyses with CellCap
 ---------------------------------------------------------
