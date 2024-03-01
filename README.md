@@ -46,8 +46,8 @@ Navigating this Repository
 The CellCap repository is organized as follows:
 ```
 <repo_root>/
-├─ cellcap/               # CellCap Python package
-├─ doc/                   # Documentation of CellCap package, including notebook for using CellCap to analysis single-cell perturbation data
+├─ cellcap/               # CellCap python package
+├─ doc/                   # Package documentation, including notebooks for analyzing single-cell perturbation data with CellCap
 ```
 
 Preprint and Citation
