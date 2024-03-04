@@ -34,7 +34,7 @@ Understanding the correspondence between cellular identity and perturbation resp
 
 3. For a given perturbation, which cell states respond strongly via each response program?
 
-    For one perturbation $p$, given a response program $q$ of interest, the basal state $\vec{z}_n^\text{(basal)}$ can be queried by the learned perturbation key $\vec{\kappa}_{pq}$. This is a key question that CellCap addresses: the correspondence between basal cell state and perturbation response.
+    For one perturbation $p$, given a response program $q$ of interest, the basal state $z_{nk}^\text{(basal)}$ can be queried by the learned perturbation key $\kappa_{pqk}$. This is a key question that CellCap addresses: the correspondence between basal cell state and perturbation response.
 
 4. What is the response amplitude of each response program in each basal cell state?
 
