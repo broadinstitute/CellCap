@@ -1,6 +1,7 @@
 """The CellCap model"""
 
 import logging
+import numpy as np
 
 import torch
 import torch.nn.functional as F
@@ -33,6 +34,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         n_covar: int = 5,
         n_layers_encoder: int = 1,
         n_head: int = 2,
+        tao: float = 4.0,
         dropout_rate: float = 0.25,
         lamda: float = 1.0,
         kl_weight: float = 1.0,
@@ -60,6 +62,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         self.n_prog = n_prog
         self.n_covar = n_covar
         self.n_head = n_head
+        self.tao = tao
 
         # hyperparameter used in training
         self.lamda = lamda
@@ -132,6 +135,10 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             in_feature=self.n_latent, hidden_size=128, out_dim=self.n_drug
         )
 
+        self.covarclassifier = AdvNet(
+            in_feature=self.n_latent, hidden_size=128, out_dim=self.n_covar
+        )
+
     def _get_inference_input(self, tensors):
         x = tensors[REGISTRY_KEYS.X_KEY]
         p = tensors["TARGET_KEY"]
@@ -197,11 +204,12 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             key = key.reshape((p.size(0), self.n_prog, self.n_latent))
             score = torch.bmm(z_basal.unsqueeze(1), key.transpose(1, 2))
             score = score.view(-1, self.n_prog)
-            attn += [F.softmax(score, dim=1)]
+            attn += [F.softmax(score/(np.sqrt(self.n_latent)/self.tao), dim=1)]
         attn = torch.max(torch.stack(attn, dim=2), 2)[0]
         H_attn = attn * h
 
         prob = self.discriminator(z_basal)
+        covar_prob = self.covarclassifier(z_basal)
         delta_z = torch.matmul(H_attn, self.w_qk.tanh())
 
         outputs = dict(
@@ -215,6 +223,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             prob=prob,
             attn=attn,
             H_attn=H_attn,
+            covar_prob=covar_prob,
         )
 
         return outputs
@@ -264,6 +273,7 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
     ):
         x = tensors[REGISTRY_KEYS.X_KEY]
         p = tensors["TARGET_KEY"]
+        d = tensors["COVAR_KEY"]
 
         qz_m = inference_outputs["qz_m"]
         qz_v = inference_outputs["qz_v"]
@@ -272,37 +282,47 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
         scale = torch.ones_like(qz_v)
 
         H_attn = inference_outputs["H_attn"][p.sum(1) > 0, :]
-        laploc = torch.zeros_like(H_attn)
+        laploc = torch.zeros_like(self.alpha_q)
 
         # reconstruction loss
-        rec_loss = -generative_outputs["px"].log_prob(x).sum(-1) * self.rec_weight
-
+        rec_loss = -generative_outputs["px"].log_prob(x).sum(-1)
+        
         # KL divergence
-        kl_divergence_z = kl(Normal(qz_m, torch.sqrt(qz_v)), Normal(mean, scale)).sum(
+        kl_divergence_z = kl(
+            Normal(qz_m, torch.sqrt(qz_v)), 
+            Normal(mean, scale)).sum(
             dim=1
         )
-
-        kl_divergence_ard = (
-            -1
-            * (
-                Laplace(loc=laploc, scale=self.alpha_q.sigmoid())
-                .log_prob(H_attn)
-                .sum(-1)
-            )
-            * self.ard_kl_weight
+        
+        kl_divergence_ard = -1 * (
+            Laplace(loc=laploc, scale=self.alpha_q.sigmoid())
+            .log_prob(H_attn)
+            .sum(-1)
         )
-
-        weighted_kl_local = self.kl_weight * kl_divergence_z
-
-        adv_loss = (
-            torch.nn.BCELoss(reduction="sum")(inference_outputs["prob"], p) * self.lamda
+        
+        weighted_kl_local = (
+            self.kl_weight * kl_divergence_z
         )
-
+        
+        adv_loss = torch.nn.BCELoss(reduction='mean')(
+            inference_outputs["prob"],p
+        )
+        scale_factor = ((torch.mean(rec_loss)/adv_loss) * 0.1).detach()
+        
         loss = (
-            torch.mean(rec_loss + weighted_kl_local)
-            + torch.mean(kl_divergence_ard)
-            + adv_loss
+            torch.mean(
+                rec_loss * self.rec_weight + weighted_kl_local
+            )
+            + torch.mean(kl_divergence_ard) * self.ard_kl_weight
+            + adv_loss * self.lamda * scale_factor
         )
+
+        if self.n_covar > 1:
+            cov_loss = torch.nn.BCELoss(reduction='mean')(
+                inference_outputs["covar_prob"], d
+            )
+            scale_factor = ((torch.mean(rec_loss) / cov_loss) * 0.1).detach()
+            loss += cov_loss * self.lamda * scale_factor
 
         kl_local = dict(
             kl_divergence_z=kl_divergence_z,
