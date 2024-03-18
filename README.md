@@ -55,4 +55,6 @@ The CellCap repository is organized as follows:
 Preprint and Citation
 --------------
 
-The preprint will be published shortly on *bioRxiv*, and the citation will be added here.
+If you use CellCap in your research, please consider citing our paper:
+
+Yang Xu, Stephen Fleming, Matthew Tegtmeyer, Steven A. McCarroll, Mehrtash Babadi. Modeling interpretable correspondence between cell state and perturbation response with CellCap. [bioRxiv](https://www.biorxiv.org/content/10.1101/2024.03.14.585078v1), 2024.
