@@ -3,6 +3,6 @@ scipy
 pandas
 scanpy
 torch==1.12.1
-scvi-tools==0.19.0
+scvi-tools==1.0.4
 torchvision==0.13.1
 torchmetrics==0.11.4
