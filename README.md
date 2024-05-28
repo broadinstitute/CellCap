@@ -4,7 +4,7 @@ CellCap
 CellCap is a generative model of scRNA-seq perturbation data which emphasizes interpretability. CellCap explicitly models the correspondence between each cell's basal state and the measured perturbation response, and learns how to explain cellular response in terms of weighted sums of a succinct set of response programs.
 
 Key concepts of CellCap
-----------------------
+-----------------------
 To understand the correspondence between basal cell state and perturbation response, the CellCap model was built with several interpretable components:
 
 ![Fig.1a-b](https://github.com/broadinstitute/CellCap/blob/main/docs/source/_static/design/Figure1.jpg?raw=false)
@@ -52,8 +52,16 @@ The CellCap repository is organized as follows:
         └─ notebooks/     # Example jupyter notebooks
 ```
 
+Installation
+------------
+Please git clone the repositary first, and then run installation below
+
+```
+pip install .
+```
+
 Preprint and Citation
---------------
+---------------------
 
 If you use CellCap in your research, please consider citing our paper:
 
