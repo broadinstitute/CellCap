@@ -7,7 +7,6 @@ build:
     python: "3.9"
 
 python:
-    version: 3.9
     install:
         - requirements: requirements-rtd.txt
         - method: pip
