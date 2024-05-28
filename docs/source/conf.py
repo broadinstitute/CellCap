@@ -25,7 +25,7 @@ extensions = [
     # "sphinx_autodoc_typehints",
     # "sphinxcontrib.programoutput",
     "sphinx.ext.intersphinx",
-    "nbsphinx",
+    # "nbsphinx",
     "myst_parser",
 ]
 
