@@ -21,11 +21,11 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.mathjax",
     "sphinx.ext.viewcode",
-    # "sphinxarg.ext",
-    # "sphinx_autodoc_typehints",
-    # "sphinxcontrib.programoutput",
+    "sphinxarg.ext",
+    "sphinx_autodoc_typehints",
+    "sphinxcontrib.programoutput",
     "sphinx.ext.intersphinx",
-    # "nbsphinx",
+    "nbsphinx",
     "myst_parser",
 ]
 
