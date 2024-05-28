@@ -22,9 +22,9 @@ extensions = [
     "sphinx.ext.mathjax",
     "sphinx.ext.viewcode",
     # "sphinxarg.ext",
-    "sphinx_autodoc_typehints",
+    # "sphinx_autodoc_typehints",
     "sphinxcontrib.programoutput",
-    # "sphinx.ext.intersphinx",
+    "sphinx.ext.intersphinx",
     "nbsphinx",
     "myst_parser",
 ]
