@@ -1,7 +1,7 @@
 CellCap
 =======
 
-CellCap is a generative model of scRNA-seq perturbation data which emphasizes interpretability. CellCap explicitly models the correspondence between each cell's basal state and the measured perturbation response, and learns how to explain cellular response in terms of weighted sums of a succinct set of response programs. A detailed documentation{https://cellcap.readthedocs.io/en/latest/} is also available.
+CellCap is a generative model of scRNA-seq perturbation data which emphasizes interpretability. CellCap explicitly models the correspondence between each cell's basal state and the measured perturbation response, and learns how to explain cellular response in terms of weighted sums of a succinct set of response programs. A detailed <a href="https://cellcap.readthedocs.io/en/latest/">documentation</a> is also available.
 
 Key concepts of CellCap
 -----------------------
