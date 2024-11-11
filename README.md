@@ -54,9 +54,15 @@ The CellCap repository is organized as follows:
 
 Installation
 ------------
-Please git clone the repositary first, and then run installation below
+We suggest creating a new conda environment to run CellCap
 
 ```
+conda create -n cellcap python=3.10
+conda activate cellcap
+
+git clone https://github.com/broadinstitute/CellCap.git
+cd CellCap
+
 pip install .
 ```
 
