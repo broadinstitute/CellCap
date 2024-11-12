@@ -304,25 +304,25 @@ class CellCapModel(BaseModuleClass, CellCapMixin):
             self.kl_weight * kl_divergence_z
         )
         
-        adv_loss = torch.nn.BCELoss(reduction='mean')(
+        adv_loss = torch.nn.BCELoss(reduction='sum')(
             inference_outputs["prob"],p
         )
-        scale_factor = ((torch.mean(rec_loss)/adv_loss) * 0.1).detach()
+        # scale_factor = ((torch.mean(rec_loss)/adv_loss) * 0.1).detach()
         
         loss = (
             torch.mean(
                 rec_loss * self.rec_weight + weighted_kl_local
             )
             + torch.mean(kl_divergence_ard) * self.ard_kl_weight
-            + adv_loss * self.lamda * scale_factor
+            + adv_loss * self.lamda # * scale_factor
         )
 
         if self.n_covar > 1:
-            cov_loss = torch.nn.BCELoss(reduction='mean')(
+            cov_loss = torch.nn.BCELoss(reduction='sum')(
                 inference_outputs["covar_prob"], d
             )
-            scale_factor = ((torch.mean(rec_loss) / cov_loss) * 0.1).detach()
-            loss += cov_loss * self.lamda * scale_factor
+            # scale_factor = ((torch.mean(rec_loss) / cov_loss) * 0.1).detach()
+            loss += cov_loss * self.lamda # * scale_factor
 
         kl_local = dict(
             kl_divergence_z=kl_divergence_z,
