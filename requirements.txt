@@ -61,6 +61,8 @@ ipython==8.27.0
 itsdangerous==2.2.0
 jax==0.4.23
 jaxlib==0.4.23
+jax-cuda12-pjrt==0.4.23
+jax-cuda12-plugin==0.4.23
 jedi==0.19.1
 Jinja2==3.1.4
 jmespath==1.0.1
